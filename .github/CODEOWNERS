@@ -1,0 +1,6 @@
+# Remplacer par les noms d'utilisateur GitHub réels
+*            @USERNAME_VALERDY
+/backend/    @USERNAME_A
+/agents/     @USERNAME_B
+/frontend/   @USERNAME_C
+/docs/       @USERNAME_VALERDY
