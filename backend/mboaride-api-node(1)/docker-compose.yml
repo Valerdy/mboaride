@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mboaride
+      POSTGRES_PASSWORD: mboaride
+      POSTGRES_DB: mboaride
+    ports: ["5432:5432"]
+    volumes: [dbdata:/var/lib/postgresql/data]
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgres://mboaride:mboaride@db:5432/mboaride
+      SECRET_KEY: ${SECRET_KEY:-change-me-en-local-seulement-32-caracteres}
+      OSRM_URL: ${OSRM_URL:-http://osrm:5000}
+      PORT: 8000
+    ports: ["8000:8000"]
+    depends_on: [db]
+  # Serveur d'itinéraires. À lancer après avoir préparé la carte (scripts/osrm-prepare) :
+  #   docker compose --profile osrm up -d osrm
+  osrm:
+    profiles: ["osrm"]
+    image: ghcr.io/project-osrm/osrm-backend
+    command: osrm-routed --algorithm mld /data/cameroon-latest.osrm
+    volumes: ["./osrm:/data"]
+    ports: ["5000:5000"]
+volumes:
+  dbdata:
