@@ -161,7 +161,9 @@ Le conducteur calcule le prix et en détaille le calcul dans `price_breakdown`, 
 - `tolls` = péages (trajets interurbains) ;
 - `divisor` = nombre de parts : occupants selon le dossier de conception, places offertes dans la version mesurée par le bilan durable. **C'est le point ouvert du bilan (le conducteur ne couvre que 39 % de ses frais)** ; le format accepte les deux règles ;
 - `commission` = 10 % de la part, en réseau public et en interurbain, 0 sinon ;
-- `price` = arrondi((`fuel_cost` + `tolls`) / `divisor`) + `commission`.
+- `price` = max(arrondi((`fuel_cost` + `tolls`) / `divisor`), prix plancher du conducteur) + `commission`.
+
+Implémentation : `agents/mboaride_agents/pricing.py`. Les calculs se font en fractions exactes, arrondies au FCFA, demi vers le haut. La règle du diviseur se choisit avec `PricingPolicy(divisor_rule=...)` : `OFFERED_SEATS` (conducteur + places offertes, par défaut) ou `OCCUPANTS` (conducteur + passagers à bord).
 
 ## 5. Variantes et imprévus
 
