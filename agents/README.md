@@ -18,9 +18,10 @@ Le format des messages est fixé par [`schemas/message.schema.json`](schemas/mes
 |---|---|
 | `messages.py` | brouillons de messages (`draft`, `reply`), tampon du bus (`stamp`), validation contre le schéma |
 | `driver.py` | agent conducteur : répond à un appel d'offres (CFP) par une offre (PROPOSAL) ou un refus motivé (DECLINE) |
+| `passenger.py` | agent passager : publie la demande, écarte les offres contraires à ses exigences, classe les autres par score, puis accepte (autonome) ou présente les 3 meilleures (manuel) |
 | `pricing.py` | prix d'un trajet partagé (carburant, péages, diviseur, prix plancher, commission) |
 | `routing.py` | interface `RoutingService` et estimateur de détour local et déterministe |
-| `agents.py` | squelette initial (passager, organisation, coordinateur), à remplacer |
+| `agents.py` | squelette initial (organisation, coordinateur), à remplacer |
 
 ```python
 import asyncio

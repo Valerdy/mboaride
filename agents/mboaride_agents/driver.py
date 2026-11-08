@@ -13,12 +13,11 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import messages
+from .messages import COMFORTS, TRIP_KINDS
 from .pricing import PricingPolicy, quote
 from .routing import NoRouteError, Point, RoutingService
 
-CIRCLES = frozenset({"ORGANIZATION", "PARTNERS", "PUBLIC"})
-COMFORTS = frozenset({"AIR_CONDITIONING", "NON_SMOKING", "QUIET", "LUGGAGE_SPACE"})
-TRIP_KINDS = frozenset({"URBAN", "INTERURBAN"})
+CIRCLES = frozenset(messages.CIRCLES)
 
 
 @dataclass(frozen=True)
