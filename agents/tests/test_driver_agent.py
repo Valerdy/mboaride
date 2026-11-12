@@ -227,9 +227,70 @@ def test_message_for_another_driver_is_refused():
 
 
 def test_message_types_not_handled_yet_are_refused():
-    accept = copy.deepcopy(NOMINAL["m-11"])
+    cancelled = copy.deepcopy(next(m for m in EXAMPLES["exceptions"] if m["type"] == "BOOKING_CANCELLED"))
+    cancelled["receiver"] = "driver:d07"
     with pytest.raises(ValueError):
-        asyncio.run(DriverAgent(d07_profile(), FixedRouting()).handle(accept))
+        asyncio.run(DriverAgent(d07_profile(), FixedRouting()).handle(cancelled))
+
+
+# --- Acceptation d'une offre : réservation ou échec ---------------------------------------------
+
+def accept_for(proposal: dict, seq: int, sender: str | None = None) -> dict:
+    m = copy.deepcopy(NOMINAL["m-11"])
+    m.update(id=f"m-{seq}", seq=seq, in_reply_to=proposal["id"], receiver=proposal["sender"],
+             sender=sender or proposal["receiver"])
+    m["body"] = {"offer_id": proposal["body"]["offer_id"], "round": proposal["body"]["round"]}
+    return m
+
+
+def test_accept_books_the_seat_and_reports_the_documented_booking():
+    agent = DriverAgent(d07_profile(), FixedRouting())
+    proposal = answer(agent, NOMINAL["m-5"])
+    out = answer(agent, accept_for(proposal, 11))
+    assert out["type"] == "BOOKING_CONFIRMED" and out["receiver"] == "coordinator"
+    assert out["body"] == NOMINAL["m-12"]["body"]
+    assert agent.seats_free == 2
+    assert list(agent.bookings) == ["b-d07-1"]
+
+
+def test_last_seat_goes_to_the_first_acceptance():
+    # Une seule place : le prix est partagé en 2 (330 FCFA), d'où un prix maximal relevé.
+    agent = DriverAgent(d07_profile(seats_total=1), FixedRouting())
+    first = answer(agent, cfp(max_price=400))
+    other_cfp = cfp(max_price=400)
+    other_cfp.update(conversation_id="r-p077-1", id="m-30", seq=30)
+    other_cfp["body"]["reply_to"] = "passenger:p077"
+    second = answer(agent, other_cfp)
+    assert answer(agent, accept_for(first, 40))["type"] == "BOOKING_CONFIRMED"
+    failed = answer(agent, accept_for(second, 42))
+    assert (failed["type"], failed["receiver"], failed["body"]["reason"]) == ("BOOKING_FAILED", "passenger:p077", "SEAT_TAKEN")
+    assert agent.seats_free == 0
+
+
+@pytest.mark.parametrize("change", ["unknown offer", "other passenger", "accepted twice"])
+def test_unknown_offer_is_not_booked(change):
+    agent = DriverAgent(d07_profile(), FixedRouting())
+    proposal = answer(agent, cfp())
+    accept = accept_for(proposal, 20)
+    if change == "unknown offer":
+        accept["body"]["offer_id"] = "o-d07-inconnue"
+    elif change == "other passenger":
+        accept["sender"] = "passenger:p999"
+    else:
+        answer(agent, accept_for(proposal, 18))
+    out = answer(agent, accept)
+    assert (out["type"], out["body"]["reason"]) == ("BOOKING_FAILED", "OFFER_UNKNOWN")
+
+
+def test_full_driver_declines_new_requests_after_bookings():
+    agent = DriverAgent(d07_profile(seats_total=1), FixedRouting())
+    answer(agent, accept_for(answer(agent, cfp(max_price=400)), 20))
+    assert answer(agent, cfp(max_price=400))["body"]["reason"] == "NO_SEAT"
+
+
+def test_invalid_organization_id_is_rejected():
+    with pytest.raises(ValueError):
+        d07_profile(organization_id="entreprise-test")
 
 
 @pytest.mark.parametrize("changes", [

@@ -116,7 +116,8 @@
       "type": "BOOKING_CONFIRMED", "performative": "CONFIRM", "sender": "driver:d07", "receiver": "coordinator",
       "sent_at": "2026-11-10T06:15:00+01:00",
       "body": {
-        "booking_id": "b-0001", "offer_id": "o-d07-r-p042-1", "passenger": "passenger:p042", "price": 165,
+        "booking_id": "b-d07-1", "offer_id": "o-d07-r-p042-1", "passenger": "passenger:p042", "price": 165,
+        "pickup_point": { "lat": 4.0711, "lng": 9.759 },
         "pickup_time": "2026-11-10T07:08:00+01:00", "dropoff_time": "2026-11-10T07:36:00+01:00", "seats_left": 2
       }
     },
@@ -125,7 +126,7 @@
       "type": "CREW_CONFIRMED", "performative": "INFORM", "sender": "coordinator", "receiver": "passenger:p042",
       "sent_at": "2026-11-10T06:15:00+01:00",
       "body": {
-        "booking_id": "b-0001", "driver": "driver:d07", "offer_id": "o-d07-r-p042-1",
+        "booking_id": "b-d07-1", "driver": "driver:d07", "offer_id": "o-d07-r-p042-1",
         "pickup_point": { "lat": 4.0711, "lng": 9.759 },
         "pickup_time": "2026-11-10T07:08:00+01:00", "dropoff_time": "2026-11-10T07:36:00+01:00",
         "price": 165, "rounds": 1
@@ -161,13 +162,13 @@
       "protocol": "mboaride-cnp/1", "id": "m-900", "seq": 900, "conversation_id": "t-d07", "in_reply_to": null,
       "type": "TRIP_CANCELLED", "performative": "CANCEL", "sender": "driver:d07", "receiver": "coordinator",
       "sent_at": "2026-11-10T06:30:00+01:00",
-      "body": { "trip_id": "t-d07", "bookings": ["b-0001", "b-0004", "b-0009"], "reason": "DRIVER_CANCELLED" }
+      "body": { "trip_id": "t-d07", "bookings": ["b-d07-1", "b-d07-2", "b-d07-3"], "reason": "DRIVER_CANCELLED" }
     },
     {
       "protocol": "mboaride-cnp/1", "id": "m-901", "seq": 901, "conversation_id": "r-p042-1", "in_reply_to": "m-900",
       "type": "CREW_CANCELLED", "performative": "INFORM", "sender": "coordinator", "receiver": "passenger:p042",
       "sent_at": "2026-11-10T06:30:00+01:00",
-      "body": { "booking_id": "b-0001", "driver": "driver:d07", "reason": "TRIP_CANCELLED" }
+      "body": { "booking_id": "b-d07-1", "driver": "driver:d07", "reason": "TRIP_CANCELLED" }
     },
     {
       "protocol": "mboaride-cnp/1", "id": "m-904", "seq": 904, "conversation_id": "r-p042-2", "in_reply_to": "m-901",
@@ -221,26 +222,26 @@
       "sent_at": "2026-11-10T07:00:00+01:00",
       "body": {
         "trip_id": "t-d03", "delay_s": 900,
-        "bookings": [{ "booking_id": "b-0002", "new_pickup_time": "2026-11-10T07:20:00+01:00", "new_dropoff_time": "2026-11-10T07:59:00+01:00" }]
+        "bookings": [{ "booking_id": "b-d03-1", "new_pickup_time": "2026-11-10T07:20:00+01:00", "new_dropoff_time": "2026-11-10T07:59:00+01:00" }]
       }
     },
     {
       "protocol": "mboaride-cnp/1", "id": "m-961", "seq": 961, "conversation_id": "r-p051-1", "in_reply_to": "m-960",
       "type": "ETA_UPDATED", "performative": "INFORM", "sender": "coordinator", "receiver": "passenger:p051",
       "sent_at": "2026-11-10T07:00:00+01:00",
-      "body": { "booking_id": "b-0002", "new_pickup_time": "2026-11-10T07:20:00+01:00", "new_dropoff_time": "2026-11-10T07:59:00+01:00", "within_window": false }
+      "body": { "booking_id": "b-d03-1", "new_pickup_time": "2026-11-10T07:20:00+01:00", "new_dropoff_time": "2026-11-10T07:59:00+01:00", "within_window": false }
     },
     {
       "protocol": "mboaride-cnp/1", "id": "m-962", "seq": 962, "conversation_id": "r-p051-1", "in_reply_to": "m-961",
       "type": "BOOKING_CANCELLED", "performative": "CANCEL", "sender": "passenger:p051", "receiver": "driver:d03",
       "sent_at": "2026-11-10T07:00:00+01:00",
-      "body": { "booking_id": "b-0002", "reason": "ETA_OUT_OF_WINDOW" }
+      "body": { "booking_id": "b-d03-1", "reason": "ETA_OUT_OF_WINDOW" }
     },
     {
       "protocol": "mboaride-cnp/1", "id": "m-963", "seq": 963, "conversation_id": "t-d03", "in_reply_to": "m-962",
       "type": "SEAT_RELEASED", "performative": "INFORM", "sender": "driver:d03", "receiver": "coordinator",
       "sent_at": "2026-11-10T07:00:00+01:00",
-      "body": { "trip_id": "t-d03", "booking_id": "b-0002", "seats_left": 1 }
+      "body": { "trip_id": "t-d03", "booking_id": "b-d03-1", "seats_left": 1 }
     }
   ]
 }

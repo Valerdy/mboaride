@@ -17,22 +17,28 @@ Le format des messages est fixé par [`schemas/message.schema.json`](schemas/mes
 | Module | Rôle |
 |---|---|
 | `messages.py` | brouillons de messages (`draft`, `reply`), tampon du bus (`stamp`), validation contre le schéma |
-| `driver.py` | agent conducteur : répond à un appel d'offres (CFP) par une offre (PROPOSAL) ou un refus motivé (DECLINE) |
-| `passenger.py` | agent passager : publie la demande, écarte les offres contraires à ses exigences, classe les autres par score, puis accepte (autonome) ou présente les 3 meilleures (manuel) |
+| `bus.py` | bus de messages déterministe : file unique, numéro d'ordre, journal, empreinte |
+| `coordinator.py` | agent coordinateur : présélection des K conducteurs, élargissement des cercles, confirmation de l'équipage |
+| `organization.py` | agent organisation : autorise ou refuse un membre dans son cercle |
+| `driver.py` | agent conducteur : offre ou refus à un appel d'offres, réservation à l'acceptation |
+| `passenger.py` | agent passager : classe les offres, accepte (autonome) ou présente les 3 meilleures (manuel) |
+| `engine.py` | moteur : assemble les agents, soumet les demandes, relaie les choix de l'utilisateur, calcule les mesures |
 | `pricing.py` | prix d'un trajet partagé (carburant, péages, diviseur, prix plancher, commission) |
 | `routing.py` | interface `RoutingService` et estimateur de détour local et déterministe |
-| `agents.py` | squelette initial (organisation, coordinateur), à remplacer |
+| `scenarios.py` | scénarios simulés à graine fixe (S1 : matin en entreprise) |
 
 ```python
 import asyncio
-from datetime import datetime
-from mboaride_agents import DriverAgent, DriverProfile, DriverTrip, EstimatedRouting, Point
+from mboaride_agents.scenarios import s1_company_morning
 
-trip = DriverTrip("t-d07", origin=Point(4.0790, 9.7740), destination=Point(4.0440, 9.6935),
-                  departure_time=datetime.fromisoformat("2026-11-10T06:55:00+01:00"))
-driver = DriverAgent(DriverProfile("d07", trip, seats_total=3, max_detour_m=3000), EstimatedRouting())
-replies = asyncio.run(driver.handle(cfp_message))   # [brouillon PROPOSAL ou DECLINE]
+engine = s1_company_morning().build()      # 20 conducteurs, 50 passagers, graine 42
+asyncio.run(engine.run())
+print(engine.metrics())                    # équipages, messages par équipage, temps, empreinte
 ```
+
+Mode manuel : après `engine.run()`, `engine.passenger(conversation).proposals` donne les trois
+meilleures offres ; l'utilisateur répond avec `engine.choose(conversation, offer_id)`,
+`engine.widen(conversation)` ou `engine.withdraw(conversation)`, puis `engine.run()`.
 
 ```bash
 pip install -r requirements.txt
