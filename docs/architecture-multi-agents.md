@@ -1,6 +1,6 @@
 # Architecture multi-agents et protocole de négociation
 
-> **Statut** : proposition à valider par le groupe · **Protocole** : `mboaride-cnp/1`
+> **Statut** : validé par le groupe (novembre 2026) · **Protocole** : `mboaride-cnp/1`
 > **Format des messages** : [`agents/schemas/message.schema.json`](../agents/schemas/message.schema.json) · **Exemples** : [`agents/schemas/examples.json`](../agents/schemas/examples.json)
 > **Références** : dossier de conception §3 à §6, document de vision §7
 
@@ -369,9 +369,9 @@ Les motifs de refus (`DECLINE.reason`, `NO_CREW.reason`) alimentent aussi le bil
 
 L'état des conducteurs (trajets, places, agrément) vient de la base de l'API Node ; le service agents en garde une copie en mémoire pendant la négociation.
 
-## 9. Écarts avec le dossier de conception, à valider par le groupe
+## 9. Écarts avec le dossier de conception, validés par le groupe
 
-| # | Point | Dossier de conception | Proposition | Pourquoi |
+| # | Point | Dossier de conception | Décision retenue | Pourquoi |
 |---|---|---|---|---|
 | 1 | Accusé de réception | 8 étapes | ajout de `REQUEST_AGREED` (9 étapes) | le passager sait combien de réponses attendre, sans délai d'attente ; l'application peut afficher « recherche dans votre entreprise » |
 | 2 | Conducteur incompatible | ne répond pas | répond `DECLINE` avec un motif | pas de délai d'attente, donc déterministe ; les motifs expliquent les échecs |
@@ -382,7 +382,7 @@ L'état des conducteurs (trajets, places, agrément) vient de la base de l'API N
 | 7 | Nom du premier cercle | « entreprise » | `ORGANIZATION` | couvre aussi les écoles et les campus |
 | 8 | Unité du détour | km | mètres et secondes | mêmes unités que l'API Node et OSRM |
 
-**Autres points à trancher :**
+**Points encore ouverts :**
 
 - **Valeur de K** : 5 par défaut, à ajuster avec les mesures de S1 et S2.
 - **Règle de partage du prix** (`divisor`) : point ouvert du bilan durable ; le format ne change pas, quelle que soit la décision.
