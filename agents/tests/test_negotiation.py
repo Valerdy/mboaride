@@ -1,5 +1,5 @@
-from mboaride_agents import CoordinatorAgent, DriverAgent, OrganizationAgent, PassengerAgent
-from mboaride_agents.agents import RideRequest
+# Squelette initial (agents.py), à remplacer par les vrais agents.
+from mboaride_agents.agents import CoordinatorAgent, DriverAgent, OrganizationAgent, PassengerAgent, RideRequest
 
 
 def run_scenario():
