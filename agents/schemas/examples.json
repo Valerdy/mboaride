@@ -1,0 +1,246 @@
+{
+  "description": "Exemples de référence du protocole mboaride-cnp/1. 'nominal' est une négociation complète (Grâce, Kotto -> Bonanjo, mode autonome, 3 conducteurs sollicités : 7 + 2x3 = 13 messages). 'exceptions' couvre les autres types de messages. Données simulées.",
+  "nominal": [
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-1", "seq": 1, "conversation_id": "r-p042-1", "in_reply_to": null,
+      "type": "RIDE_REQUEST", "performative": "REQUEST", "sender": "passenger:p042", "receiver": "coordinator",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": {
+        "passenger_kind": "ADULT",
+        "organization_id": "organization:entreprise-test",
+        "origin": { "lat": 4.0711, "lng": 9.759 },
+        "destination": { "lat": 4.044, "lng": 9.6935 },
+        "trip_kind": "URBAN",
+        "arrival_window": { "earliest": "2026-11-10T07:30:00+01:00", "target": "2026-11-10T07:40:00+01:00", "latest": "2026-11-10T07:50:00+01:00" },
+        "max_price": 300,
+        "seats": 1,
+        "comfort": { "required": [], "preferred": ["AIR_CONDITIONING"] },
+        "circles": ["ORGANIZATION", "PARTNERS", "PUBLIC"],
+        "mode": "AUTONOMOUS",
+        "exclude_drivers": []
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-2", "seq": 2, "conversation_id": "r-p042-1", "in_reply_to": "m-1",
+      "type": "CIRCLE_QUERY", "performative": "QUERY_IF", "sender": "coordinator", "receiver": "organization:entreprise-test",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": { "passenger": "passenger:p042", "passenger_kind": "ADULT" }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-3", "seq": 3, "conversation_id": "r-p042-1", "in_reply_to": "m-2",
+      "type": "CIRCLE_ANSWER", "performative": "INFORM", "sender": "organization:entreprise-test", "receiver": "coordinator",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": { "authorized": true, "reason": null, "price_cap": 500, "partner_organizations": ["organization:partenaire-01"] }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-4", "seq": 4, "conversation_id": "r-p042-1", "in_reply_to": "m-3",
+      "type": "REQUEST_AGREED", "performative": "AGREE", "sender": "coordinator", "receiver": "passenger:p042",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": { "round": 1, "circle": "ORGANIZATION", "cfp_sent_to": ["driver:d07", "driver:d03", "driver:d12"], "expected_replies": 3 }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-5", "seq": 5, "conversation_id": "r-p042-1", "in_reply_to": "m-3",
+      "type": "CFP", "performative": "CFP", "sender": "coordinator", "receiver": "driver:d07",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": {
+        "round": 1, "circle": "ORGANIZATION", "reply_to": "passenger:p042", "passenger_kind": "ADULT",
+        "origin": { "lat": 4.0711, "lng": 9.759 }, "destination": { "lat": 4.044, "lng": 9.6935 }, "trip_kind": "URBAN",
+        "arrival_window": { "earliest": "2026-11-10T07:30:00+01:00", "target": "2026-11-10T07:40:00+01:00", "latest": "2026-11-10T07:50:00+01:00" },
+        "max_price": 300, "seats": 1, "comfort_required": []
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-6", "seq": 6, "conversation_id": "r-p042-1", "in_reply_to": "m-3",
+      "type": "CFP", "performative": "CFP", "sender": "coordinator", "receiver": "driver:d03",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": {
+        "round": 1, "circle": "ORGANIZATION", "reply_to": "passenger:p042", "passenger_kind": "ADULT",
+        "origin": { "lat": 4.0711, "lng": 9.759 }, "destination": { "lat": 4.044, "lng": 9.6935 }, "trip_kind": "URBAN",
+        "arrival_window": { "earliest": "2026-11-10T07:30:00+01:00", "target": "2026-11-10T07:40:00+01:00", "latest": "2026-11-10T07:50:00+01:00" },
+        "max_price": 300, "seats": 1, "comfort_required": []
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-7", "seq": 7, "conversation_id": "r-p042-1", "in_reply_to": "m-3",
+      "type": "CFP", "performative": "CFP", "sender": "coordinator", "receiver": "driver:d12",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": {
+        "round": 1, "circle": "ORGANIZATION", "reply_to": "passenger:p042", "passenger_kind": "ADULT",
+        "origin": { "lat": 4.0711, "lng": 9.759 }, "destination": { "lat": 4.044, "lng": 9.6935 }, "trip_kind": "URBAN",
+        "arrival_window": { "earliest": "2026-11-10T07:30:00+01:00", "target": "2026-11-10T07:40:00+01:00", "latest": "2026-11-10T07:50:00+01:00" },
+        "max_price": 300, "seats": 1, "comfort_required": []
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-8", "seq": 8, "conversation_id": "r-p042-1", "in_reply_to": "m-5",
+      "type": "PROPOSAL", "performative": "PROPOSE", "sender": "driver:d07", "receiver": "passenger:p042",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": {
+        "offer_id": "o-d07-r-p042-1", "round": 1, "circle": "ORGANIZATION",
+        "departure_time": "2026-11-10T06:55:00+01:00",
+        "pickup_point": { "lat": 4.0711, "lng": 9.759 },
+        "pickup_time": "2026-11-10T07:08:00+01:00", "dropoff_time": "2026-11-10T07:36:00+01:00",
+        "detour_m": 1400, "detour_s": 240, "max_detour_m": 3000, "shared_distance_m": 9800,
+        "price": 165, "price_breakdown": { "fuel_cost": 659, "tolls": 0, "divisor": 4, "commission": 0 },
+        "comfort_offered": ["AIR_CONDITIONING", "NON_SMOKING"]
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-9", "seq": 9, "conversation_id": "r-p042-1", "in_reply_to": "m-6",
+      "type": "PROPOSAL", "performative": "PROPOSE", "sender": "driver:d03", "receiver": "passenger:p042",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": {
+        "offer_id": "o-d03-r-p042-1", "round": 1, "circle": "ORGANIZATION",
+        "departure_time": "2026-11-10T06:50:00+01:00",
+        "pickup_point": { "lat": 4.0705, "lng": 9.7571 },
+        "pickup_time": "2026-11-10T07:05:00+01:00", "dropoff_time": "2026-11-10T07:44:00+01:00",
+        "detour_m": 2600, "detour_s": 420, "max_detour_m": 3000, "shared_distance_m": 10200,
+        "price": 228, "price_breakdown": { "fuel_cost": 685, "tolls": 0, "divisor": 3, "commission": 0 },
+        "comfort_offered": ["NON_SMOKING"]
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-10", "seq": 10, "conversation_id": "r-p042-1", "in_reply_to": "m-7",
+      "type": "DECLINE", "performative": "REFUSE", "sender": "driver:d12", "receiver": "passenger:p042",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": { "round": 1, "reason": "DETOUR_TOO_LONG" }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-11", "seq": 11, "conversation_id": "r-p042-1", "in_reply_to": "m-8",
+      "type": "ACCEPT", "performative": "ACCEPT_PROPOSAL", "sender": "passenger:p042", "receiver": "driver:d07",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": { "offer_id": "o-d07-r-p042-1", "round": 1 }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-12", "seq": 12, "conversation_id": "r-p042-1", "in_reply_to": "m-11",
+      "type": "BOOKING_CONFIRMED", "performative": "CONFIRM", "sender": "driver:d07", "receiver": "coordinator",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": {
+        "booking_id": "b-0001", "offer_id": "o-d07-r-p042-1", "passenger": "passenger:p042", "price": 165,
+        "pickup_time": "2026-11-10T07:08:00+01:00", "dropoff_time": "2026-11-10T07:36:00+01:00", "seats_left": 2
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-13", "seq": 13, "conversation_id": "r-p042-1", "in_reply_to": "m-12",
+      "type": "CREW_CONFIRMED", "performative": "INFORM", "sender": "coordinator", "receiver": "passenger:p042",
+      "sent_at": "2026-11-10T06:15:00+01:00",
+      "body": {
+        "booking_id": "b-0001", "driver": "driver:d07", "offer_id": "o-d07-r-p042-1",
+        "pickup_point": { "lat": 4.0711, "lng": 9.759 },
+        "pickup_time": "2026-11-10T07:08:00+01:00", "dropoff_time": "2026-11-10T07:36:00+01:00",
+        "price": 165, "rounds": 1
+      }
+    }
+  ],
+  "exceptions": [
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-201", "seq": 201, "conversation_id": "r-e015-1", "in_reply_to": "m-200",
+      "type": "BOOKING_FAILED", "performative": "FAILURE", "sender": "driver:d21", "receiver": "passenger:e015",
+      "sent_at": "2026-11-10T06:00:00+01:00",
+      "body": { "offer_id": "o-d21-r-e015-1", "reason": "SEAT_TAKEN" }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-310", "seq": 310, "conversation_id": "r-p077-1", "in_reply_to": "m-309",
+      "type": "NO_ACCEPTABLE_OFFER", "performative": "INFORM", "sender": "passenger:p077", "receiver": "coordinator",
+      "sent_at": "2026-11-10T06:20:00+01:00",
+      "body": { "round": 1, "reason": "ALL_DECLINED" }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-402", "seq": 402, "conversation_id": "r-e019-1", "in_reply_to": "m-401",
+      "type": "NO_CREW", "performative": "FAILURE", "sender": "coordinator", "receiver": "passenger:e019",
+      "sent_at": "2026-11-10T06:00:00+01:00",
+      "body": { "rounds_tried": 0, "reason": "REFUSED_BY_ORGANIZATION", "organization_reason": "STUDENT_UNDER_12", "suggestion": null }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-520", "seq": 520, "conversation_id": "r-p088-1", "in_reply_to": null,
+      "type": "REQUEST_WITHDRAWN", "performative": "CANCEL", "sender": "passenger:p088", "receiver": "coordinator",
+      "sent_at": "2026-11-10T06:25:00+01:00",
+      "body": { "reason": "USER_DECLINED_ALL" }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-900", "seq": 900, "conversation_id": "t-d07", "in_reply_to": null,
+      "type": "TRIP_CANCELLED", "performative": "CANCEL", "sender": "driver:d07", "receiver": "coordinator",
+      "sent_at": "2026-11-10T06:30:00+01:00",
+      "body": { "trip_id": "t-d07", "bookings": ["b-0001", "b-0004", "b-0009"], "reason": "DRIVER_CANCELLED" }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-901", "seq": 901, "conversation_id": "r-p042-1", "in_reply_to": "m-900",
+      "type": "CREW_CANCELLED", "performative": "INFORM", "sender": "coordinator", "receiver": "passenger:p042",
+      "sent_at": "2026-11-10T06:30:00+01:00",
+      "body": { "booking_id": "b-0001", "driver": "driver:d07", "reason": "TRIP_CANCELLED" }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-904", "seq": 904, "conversation_id": "r-p042-2", "in_reply_to": "m-901",
+      "type": "RIDE_REQUEST", "performative": "REQUEST", "sender": "passenger:p042", "receiver": "coordinator",
+      "sent_at": "2026-11-10T06:30:00+01:00",
+      "body": {
+        "passenger_kind": "ADULT",
+        "organization_id": "organization:entreprise-test",
+        "origin": { "lat": 4.0711, "lng": 9.759 },
+        "destination": { "lat": 4.044, "lng": 9.6935 },
+        "trip_kind": "URBAN",
+        "arrival_window": { "earliest": "2026-11-10T07:30:00+01:00", "target": "2026-11-10T07:40:00+01:00", "latest": "2026-11-10T07:50:00+01:00" },
+        "max_price": 300,
+        "seats": 1,
+        "comfort": { "required": [], "preferred": ["AIR_CONDITIONING"] },
+        "circles": ["ORGANIZATION", "PARTNERS", "PUBLIC"],
+        "mode": "AUTONOMOUS",
+        "exclude_drivers": ["driver:d07"],
+        "parent_request_id": "r-p042-1"
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-950", "seq": 950, "conversation_id": "r-e015-0", "in_reply_to": null,
+      "type": "RIDE_REQUEST", "performative": "REQUEST", "sender": "passenger:e015", "receiver": "coordinator",
+      "sent_at": "2026-11-09T20:00:00+01:00",
+      "body": {
+        "passenger_kind": "STUDENT",
+        "student": { "age": 15, "parent_consent": true },
+        "organization_id": "organization:college-bonapriso",
+        "origin": { "lat": 4.0896, "lng": 9.7431 },
+        "destination": { "lat": 4.0322, "lng": 9.6984 },
+        "trip_kind": "URBAN",
+        "arrival_window": { "earliest": "2026-11-10T06:55:00+01:00", "target": "2026-11-10T07:05:00+01:00", "latest": "2026-11-10T07:15:00+01:00" },
+        "max_price": 250,
+        "seats": 1,
+        "comfort": { "required": [], "preferred": [] },
+        "circles": ["ORGANIZATION", "PUBLIC"],
+        "mode": "AUTONOMOUS",
+        "exclude_drivers": []
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-951", "seq": 951, "conversation_id": "r-e019-1", "in_reply_to": "m-400",
+      "type": "CIRCLE_ANSWER", "performative": "INFORM", "sender": "organization:college-bonapriso", "receiver": "coordinator",
+      "sent_at": "2026-11-10T06:00:00+01:00",
+      "body": { "authorized": false, "reason": "STUDENT_UNDER_12", "price_cap": null, "partner_organizations": [] }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-960", "seq": 960, "conversation_id": "t-d03", "in_reply_to": null,
+      "type": "DELAY_REPORTED", "performative": "INFORM", "sender": "driver:d03", "receiver": "coordinator",
+      "sent_at": "2026-11-10T07:00:00+01:00",
+      "body": {
+        "trip_id": "t-d03", "delay_s": 900,
+        "bookings": [{ "booking_id": "b-0002", "new_pickup_time": "2026-11-10T07:20:00+01:00", "new_dropoff_time": "2026-11-10T07:59:00+01:00" }]
+      }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-961", "seq": 961, "conversation_id": "r-p051-1", "in_reply_to": "m-960",
+      "type": "ETA_UPDATED", "performative": "INFORM", "sender": "coordinator", "receiver": "passenger:p051",
+      "sent_at": "2026-11-10T07:00:00+01:00",
+      "body": { "booking_id": "b-0002", "new_pickup_time": "2026-11-10T07:20:00+01:00", "new_dropoff_time": "2026-11-10T07:59:00+01:00", "within_window": false }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-962", "seq": 962, "conversation_id": "r-p051-1", "in_reply_to": "m-961",
+      "type": "BOOKING_CANCELLED", "performative": "CANCEL", "sender": "passenger:p051", "receiver": "driver:d03",
+      "sent_at": "2026-11-10T07:00:00+01:00",
+      "body": { "booking_id": "b-0002", "reason": "ETA_OUT_OF_WINDOW" }
+    },
+    {
+      "protocol": "mboaride-cnp/1", "id": "m-963", "seq": 963, "conversation_id": "t-d03", "in_reply_to": "m-962",
+      "type": "SEAT_RELEASED", "performative": "INFORM", "sender": "driver:d03", "receiver": "coordinator",
+      "sent_at": "2026-11-10T07:00:00+01:00",
+      "body": { "trip_id": "t-d03", "booking_id": "b-0002", "seats_left": 1 }
+    }
+  ]
+}
