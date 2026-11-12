@@ -145,6 +145,8 @@ avec `d = detour_m`, `d_max = max_detour_m`, `t = dropoff_time`, `t_cible` et `�
 
 **À score égal** : le plus petit détour, puis le départ le plus tôt (`departure_time`), puis le plus petit identifiant de conducteur.
 
+Implémentation : `agents/mboaride_agents/passenger.py`. Le score est calculé en fractions exactes, pour que deux offres équivalentes soient à égalité stricte et que le départage s'applique toujours de la même façon. Chaque terme est borné entre 0 et 1 (une heure visée décentrée dans la fenêtre ne donne pas de terme négatif). Sans confort souhaité, le terme confort vaut 1 pour toutes les offres. Avant le score, le passager écarte les offres contraires à ses exigences, avec un motif interne qui n'est pas envoyé sur le bus : `PRICE_TOO_HIGH`, `OUTSIDE_WINDOW`, `COMFORT_MISSING`, `CIRCLE_NOT_ACCEPTED`, `EXCLUDED_DRIVER`, `DETOUR_ABOVE_MAX`.
+
 Exemple tiré de [`examples.json`](../agents/schemas/examples.json), pour Grâce (Kotto → Bonanjo, arrivée visée 7 h 40 ± 10 min, 300 FCFA au plus, climatisation souhaitée) :
 
 | Offre | Détour | Arrivée | Prix | Confort | Score |

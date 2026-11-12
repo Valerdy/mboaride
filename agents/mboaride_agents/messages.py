@@ -15,6 +15,11 @@ PROTOCOL = "mboaride-cnp/1"
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "message.schema.json"
 COORDINATOR = "coordinator"
 
+# Vocabulaire commun aux agents (valeurs autorisées par le schéma).
+CIRCLES = ("ORGANIZATION", "PARTNERS", "PUBLIC")  # du plus proche au plus large
+COMFORTS = frozenset({"AIR_CONDITIONING", "NON_SMOKING", "QUIET", "LUGGAGE_SPACE"})
+TRIP_KINDS = frozenset({"URBAN", "INTERURBAN"})
+
 # Performatif FIPA imposé par chaque type de message (identique au schéma).
 PERFORMATIVES: dict[str, str] = {
     "RIDE_REQUEST": "REQUEST",
