@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:pinput/pinput.dart';
 import '../services/auth_service.dart';
-import 'profile_screen.dart';
+import 'request_ride_screen.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -18,11 +18,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _otpController = TextEditingController();
 
   String _phoneNumber = '';
-  bool _isPhoneSelected = false; // Par défaut email comme sur le wireframe
+  bool _isPhoneSelected = false;
   bool _positionAccepted = false;
   bool _isLoading = false;
   bool _otpSent = false;
   String? _detectedCompany;
+  String? _savedToken; // Stocke le token si renvoyé dès l'étape register
 
   void _checkEmailDomain(String email) {
     if (email.contains('@')) {
@@ -58,14 +59,22 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     );
     setState(() => _isLoading = false);
 
-    if (res['statusCode'] == 201 || res['statusCode'] == 409) {
+    if (!mounted) return;
+
+    if (res['statusCode'] == 201 || res['statusCode'] == 200 || res['statusCode'] == 409) {
+      // Sauvegarde du token s'il est déjà présent dans la réponse de register
+      final body = res['body'];
+      if (body is Map) {
+        _savedToken = body['token'] ?? body['access_token'];
+      }
+
       setState(() => _otpSent = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Code OTP envoyé !')),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['body']['error'] ?? 'Erreur lors de l’envoi')),
+        SnackBar(content: Text(res['body']['error'] ?? res['body']['detail'] ?? 'Erreur lors de l’envoi')),
       );
     }
   }
@@ -85,21 +94,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     );
     setState(() => _isLoading = false);
 
-    if (res['statusCode'] == 200) {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfileScreen(
-              initialCompany: _detectedCompany,
-              identifier: _currentIdentifier,
-            ),
-          ),
-        );
-      }
+    if (!mounted) return;
+
+    if (res['statusCode'] == 200 || res['statusCode'] == 201) {
+      // Récupération du token JWT depuis la réponse verifyOtp (ou fallback sur _savedToken)
+      final body = res['body'];
+      final String token = (body is Map ? (body['token'] ?? body['access_token']) : null) ?? _savedToken ?? '';
+
+      // Redirection directe vers la page RequestRideScreen
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RequestRideScreen(token: token),
+        ),
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['body']['error'] ?? 'Code OTP invalide')),
+        SnackBar(content: Text(res['body']['error'] ?? res['body']['detail'] ?? 'Code OTP invalide')),
       );
     }
   }
@@ -163,7 +174,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
               ),
-              child: _isLoading 
+              child: _isLoading
                   ? const CircularProgressIndicator(color: Colors.white)
                   : const Text('Recevoir le code', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ),
