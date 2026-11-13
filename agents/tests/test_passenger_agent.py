@@ -427,8 +427,33 @@ def test_message_for_someone_else_is_refused():
 
 
 def test_message_types_not_handled_yet_are_refused():
+    eta = copy.deepcopy(EXCEPTIONS["m-961"])   # ETA_UPDATED : retard, pas encore traité
+    eta.update(conversation_id="r-p042-1", receiver="passenger:p042")
     with pytest.raises(ValueError):
-        send(started_round(), EXCEPTIONS["m-901"])   # CREW_CANCELLED
+        send(started_round(), eta)
+
+
+def test_cancellation_relaunches_the_documented_request():
+    """Après l'annulation de d07 (m-901), le passager publie exactement la demande m-904."""
+    agent = PassengerAgent(GRACE, "r-p042-1")
+    agent.start()
+    for i in ("m-4", "m-8", "m-9", "m-10", "m-13"):
+        send(agent, NOMINAL[i])
+    out = send(agent, EXCEPTIONS["m-901"])
+    assert out == [{**EXCEPTIONS["m-904"], "id": out[0]["id"], "seq": out[0]["seq"]}]
+    assert agent.history == ["r-p042-1", "r-p042-2"]
+    assert agent.cancelled_bookings == [EXCEPTIONS["m-901"]["body"]]
+
+
+def test_cancellation_of_another_booking_is_refused():
+    agent = PassengerAgent(GRACE, "r-p042-1")
+    agent.start()
+    for i in ("m-4", "m-8", "m-9", "m-10", "m-13"):
+        send(agent, NOMINAL[i])
+    other = copy.deepcopy(EXCEPTIONS["m-901"])
+    other["body"]["booking_id"] = "b-d07-9"
+    with pytest.raises(ValueError):
+        send(agent, other)
 
 
 def test_request_is_sent_only_once():

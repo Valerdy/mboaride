@@ -1,11 +1,16 @@
 """Scénarios simulés (dossier de conception §6), générés avec une graine fixe.
 
 S1 : matin en entreprise. Une entreprise de Bonanjo, 20 conducteurs et 50 passagers
-qui habitent les quartiers de Douala, arrivées entre 7 h et 8 h, mode autonome.
+    qui habitent les quartiers de Douala, arrivées entre 7 h et 8 h, mode autonome.
+S3 : annulations. S1, puis 3 conducteurs qui ont des passagers annulent leur trajet
+    (6 h 30, 6 h 35, 6 h 40) ; leurs passagers sont réaffectés automatiquement (US07).
+S5 : mode manuel. S1 où chaque passager reçoit au plus trois propositions et en choisit
+    une ; le choix humain est simulé de façon déterministe (US05).
 Données entièrement simulées : aucune donnée personnelle réelle.
 """
 from __future__ import annotations
 
+import dataclasses
 import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -34,6 +39,9 @@ class Scenario:
     drivers: list[DriverProfile] = field(default_factory=list)
     requests: list[tuple[PassengerRequest, datetime]] = field(default_factory=list)
     routing: EstimatedRouting = field(default_factory=EstimatedRouting)
+    seed: int = 42
+    cancellations: list[datetime] = field(default_factory=list)   # heures d'annulation (S3)
+    manual_choices: bool = False                                   # utilisateurs simulés (S5)
 
     def build(self, *, cfp_fanout: int = 5, validate: bool = False) -> Engine:
         """Moteur prêt à tourner : agents inscrits, demandes publiées dans l'ordre."""
@@ -44,6 +52,32 @@ class Scenario:
             engine.add_driver(DriverAgent(profile, self.routing))
         engine.submit_many(self.requests)
         return engine
+
+    async def play(self, engine: Engine) -> dict[str, list[float]]:
+        """Joue le scénario jusqu'au bout ; renvoie la durée réelle de chaque phase, en secondes."""
+        await engine.run()
+        phases = {"negotiation_s": [engine.last_run_s], "user_choices_s": [], "reassignment_s": []}
+        if self.manual_choices:
+            for _ in range(10):   # un choix peut échouer (place prise) : l'utilisateur rechoisit
+                waiting = [c for c in engine.conversations() if engine.passenger(c).conversation_id == c
+                           and engine.passenger(c).state == "AWAITING_USER"]
+                if not waiting:
+                    break
+                for conversation in waiting:
+                    proposals = engine.passenger(conversation).proposals
+                    # Choix simulé : rang tiré du numéro du passager (p017 -> rang 17 % nombre d'offres).
+                    rank = int(engine.passenger(conversation).request.passenger_id[1:]) % len(proposals)
+                    engine.choose(conversation, proposals[rank].offer_id)
+                await engine.run()
+                phases["user_choices_s"].append(engine.last_run_s)
+        if self.cancellations:
+            booked = sorted(d for d, agent in engine.bus.agents.items() if d.startswith("driver:") and agent.bookings)
+            chosen = sorted(random.Random(self.seed).sample(booked, min(len(self.cancellations), len(booked))))
+            for driver, at in zip(chosen, self.cancellations):
+                engine.cancel_trip(driver.split(":", 1)[1], at)
+                await engine.run()
+                phases["reassignment_s"].append(engine.last_run_s)
+        return phases
 
 
 def _near(rng: random.Random, center: Point, spread: float) -> Point:
@@ -97,3 +131,18 @@ def s1_company_morning(seed: int = 42, n_drivers: int = 20, n_passengers: int = 
 
     return Scenario(name="S1", organizations=[OrganizationAgent("entreprise-s1", members=members)],
                     drivers=drivers, requests=requests, routing=routing)
+
+
+def s3_cancellations(seed: int = 42) -> Scenario:
+    scenario = s1_company_morning(seed)
+    day = datetime(2026, 11, 10, tzinfo=TZ)
+    return dataclasses.replace(scenario, name="S3", cancellations=[_at(day, 6 * 60 + m) for m in (30, 35, 40)])
+
+
+def s5_manual(seed: int = 42) -> Scenario:
+    scenario = s1_company_morning(seed)
+    requests = [(dataclasses.replace(request, mode="MANUAL"), at) for request, at in scenario.requests]
+    return dataclasses.replace(scenario, name="S5", requests=requests, manual_choices=True)
+
+
+SCENARIOS = {"S1": s1_company_morning, "S3": s3_cancellations, "S5": s5_manual}
