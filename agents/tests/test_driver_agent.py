@@ -317,3 +317,30 @@ def test_performatives_match_the_schema():
     from_schema = {name.removeprefix("route_"): rule["then"]["properties"]["performative"]["const"]
                    for name, rule in schema["$defs"].items() if name.startswith("route_")}
     assert from_schema == messages.PERFORMATIVES
+
+
+# --- Annulation du trajet (US07) -------------------------------------------------------------------
+
+def test_cancel_trip_lists_the_bookings():
+    agent = DriverAgent(d07_profile(), FixedRouting())
+    answer(agent, accept_for(answer(agent, cfp()), 20))
+    out = messages.stamp(agent.cancel_trip(), seq=30, sent_at="2026-11-10T06:30:00+01:00")
+    assert messages.validation_errors(out) == []
+    assert (out["type"], out["receiver"], out["conversation_id"]) == ("TRIP_CANCELLED", "coordinator", "t-d07")
+    assert out["body"] == {"trip_id": "t-d07", "bookings": ["b-d07-1"], "reason": "DRIVER_CANCELLED"}
+
+
+def test_after_cancellation_offers_and_acceptances_fail():
+    agent = DriverAgent(d07_profile(), FixedRouting())
+    proposal = answer(agent, cfp())
+    agent.cancel_trip()
+    failed = answer(agent, accept_for(proposal, 20))
+    assert (failed["type"], failed["body"]["reason"]) == ("BOOKING_FAILED", "TRIP_CANCELLED")
+    assert answer(agent, cfp())["body"]["reason"] == "NO_SEAT"
+
+
+def test_trip_is_cancelled_only_once():
+    agent = DriverAgent(d07_profile(), FixedRouting())
+    agent.cancel_trip()
+    with pytest.raises(ValueError):
+        agent.cancel_trip()

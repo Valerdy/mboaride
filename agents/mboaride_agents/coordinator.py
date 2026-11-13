@@ -29,7 +29,7 @@ DEFAULT_ESTIMATORS = {"URBAN": EstimatedRouting(speed_kmh=20), "INTERURBAN": Est
 # Marge sur l'heure de dépose estimée : l'estimation diffère de l'itinéraire réel (OSRM).
 DEFAULT_TIME_TOLERANCE = timedelta(minutes=15)
 
-OPEN, CONFIRMED, NO_CREW, WITHDRAWN = "OPEN", "CONFIRMED", "NO_CREW", "WITHDRAWN"
+OPEN, CONFIRMED, NO_CREW, WITHDRAWN, CANCELLED = "OPEN", "CONFIRMED", "NO_CREW", "WITHDRAWN", "CANCELLED"
 
 
 @dataclass
@@ -48,6 +48,7 @@ class DriverListing:
     trip_kind: str
     max_detour_m: int
     seats_free: int
+    active: bool = True          # False une fois le trajet annulé
 
     @classmethod
     def from_agent(cls, driver) -> DriverListing:
@@ -84,6 +85,7 @@ class CoordinatorAgent:
         self.time_tolerance = time_tolerance
         self.drivers: dict[str, DriverListing] = {}
         self.conversations: dict[str, Conversation] = {}
+        self.bookings: dict[str, str] = {}   # booking_id -> conversation de la demande
 
     agent_id = COORDINATOR
 
@@ -101,6 +103,7 @@ class CoordinatorAgent:
             "NO_ACCEPTABLE_OFFER": self._on_no_acceptable_offer,
             "BOOKING_CONFIRMED": self._on_booking_confirmed,
             "REQUEST_WITHDRAWN": self._on_withdrawn,
+            "TRIP_CANCELLED": self._on_trip_cancelled,
         }.get(message["type"])
         if handler is None:
             raise ValueError(f"Le coordinateur ne traite pas encore les messages {message['type']}")
@@ -146,6 +149,7 @@ class CoordinatorAgent:
         if body["passenger"] != conv.passenger:
             raise ValueError("Réservation confirmée pour un autre passager que celui de la conversation")
         self.drivers[message["sender"]].seats_free = body["seats_left"]
+        self.bookings[body["booking_id"]] = message["conversation_id"]
         conv.status = CONFIRMED
         crew = {
             "booking_id": body["booking_id"],
@@ -162,6 +166,26 @@ class CoordinatorAgent:
     def _on_withdrawn(self, message: messages.Message) -> list[messages.Message]:
         self._open(message).status = WITHDRAWN
         return []
+
+    def _on_trip_cancelled(self, message: messages.Message) -> list[messages.Message]:
+        """Annulation d'un conducteur (US07) : seuls ses passagers sont prévenus, le reste du réseau ne bouge pas."""
+        driver = self.drivers.get(message["sender"])
+        if driver is None:
+            raise ValueError(f"Conducteur inconnu : {message['sender']}")
+        driver.active = False
+        driver.seats_free = 0
+        out = []
+        for booking_id in sorted(message["body"]["bookings"]):
+            conversation_id = self.bookings.pop(booking_id, None)
+            if conversation_id is None:
+                raise ValueError(f"Réservation inconnue : {booking_id}")
+            conv = self.conversations[conversation_id]
+            conv.status = CANCELLED
+            out.append(messages.draft("CREW_CANCELLED", sender=COORDINATOR, receiver=conv.passenger,
+                                      conversation_id=conversation_id, in_reply_to=message["id"],
+                                      body={"booking_id": booking_id, "driver": message["sender"],
+                                            "reason": "TRIP_CANCELLED"}))
+        return out
 
     # --- Tours d'appel d'offres -----------------------------------------------------------
 
@@ -195,7 +219,7 @@ class CoordinatorAgent:
         candidates = []
         for agent_id in sorted(self.drivers):
             d = self.drivers[agent_id]
-            if agent_id in excluded or not d.approved or d.seats_free < req["seats"]:
+            if agent_id in excluded or not d.active or not d.approved or d.seats_free < req["seats"]:
                 continue
             if circle not in d.accepted_circles or not self._in_circle(d, conv, circle):
                 continue

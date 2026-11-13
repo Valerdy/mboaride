@@ -86,6 +86,7 @@ class DriverAgent:
         self.offers: dict[str, dict[str, Any]] = {}
         # Réservations confirmées : booking_id -> détails.
         self.bookings: dict[str, dict[str, Any]] = {}
+        self.cancelled = False   # trajet annulé par le conducteur
 
     @property
     def agent_id(self) -> str:
@@ -105,8 +106,26 @@ class DriverAgent:
             return [self.on_accept(message)]
         raise ValueError(f"L'agent conducteur ne traite pas encore les messages {message['type']}")
 
+    def cancel_trip(self, reason: str = "DRIVER_CANCELLED") -> messages.Message:
+        """Le conducteur annule son trajet : brouillon TRIP_CANCELLED pour le coordinateur (US07).
+
+        Le coordinateur prévient chaque passager réservé, dont l'agent relance aussitôt
+        une négociation sans ce conducteur. Les offres en cours sont retirées.
+        """
+        if self.cancelled:
+            raise ValueError(f"Le trajet de {self.agent_id} est déjà annulé")
+        self.cancelled = True
+        self.offers.clear()
+        return messages.draft("TRIP_CANCELLED", sender=self.agent_id, receiver=messages.COORDINATOR,
+                              conversation_id=self.profile.trip.trip_id, in_reply_to=None,
+                              body={"trip_id": self.profile.trip.trip_id, "bookings": sorted(self.bookings),
+                                    "reason": reason})
+
     async def on_cfp(self, cfp: messages.Message) -> messages.Message:
         body = cfp["body"]
+        if self.cancelled:   # appel d'offres croisé avec l'annulation : plus aucune place à offrir
+            return messages.reply(cfp, "DECLINE", sender=self.agent_id, receiver=body["reply_to"],
+                                  body={"round": body["round"], "reason": "NO_SEAT"})
         reason, offer = await self._evaluate(cfp["conversation_id"], body)
         if reason:
             return messages.reply(cfp, "DECLINE", sender=self.agent_id, receiver=body["reply_to"],
@@ -122,6 +141,8 @@ class DriverAgent:
         BOOKING_FAILED (SEAT_TAKEN) et passent à leur offre suivante.
         """
         offer_id = accept["body"]["offer_id"]
+        if self.cancelled:
+            return self._booking_failed(accept, offer_id, "TRIP_CANCELLED")
         pending = self.offers.get(offer_id)
         if pending is None or pending["passenger"] != accept["sender"]:
             return self._booking_failed(accept, offer_id, "OFFER_UNKNOWN")

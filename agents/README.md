@@ -25,7 +25,8 @@ Le format des messages est fixé par [`schemas/message.schema.json`](schemas/mes
 | `engine.py` | moteur : assemble les agents, soumet les demandes, relaie les choix de l'utilisateur, calcule les mesures |
 | `pricing.py` | prix d'un trajet partagé (carburant, péages, diviseur, prix plancher, commission) |
 | `routing.py` | interface `RoutingService` et estimateur de détour local et déterministe |
-| `scenarios.py` | scénarios simulés à graine fixe (S1 : matin en entreprise) |
+| `scenarios.py` | scénarios simulés à graine fixe : S1 (matin en entreprise), S3 (annulations), S5 (mode manuel) |
+| `bench.py` | banc de mesure : convergence, messages, déterminisme et mémoire par scénario |
 
 ```python
 import asyncio
@@ -35,6 +36,16 @@ engine = s1_company_morning().build()      # 20 conducteurs, 50 passagers, grain
 asyncio.run(engine.run())
 print(engine.metrics())                    # équipages, messages par équipage, temps, empreinte
 ```
+
+Banc de mesure (les quatre critères de la grille, 10 exécutions par scénario) :
+
+```bash
+python -m mboaride_agents.bench             # S1, S3 et S5
+python -m mboaride_agents.bench S1 --json   # sortie JSON (écran de démonstration US15)
+```
+
+Annulation d'un conducteur (US07) : `engine.cancel_trip("d07", heure)` puis `engine.run()` ; ses passagers
+relancent automatiquement une demande sans lui.
 
 Mode manuel : après `engine.run()`, `engine.passenger(conversation).proposals` donne les trois
 meilleures offres ; l'utilisateur répond avec `engine.choose(conversation, offer_id)`,

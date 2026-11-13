@@ -231,6 +231,8 @@ sequenceDiagram
   Note over C,P: chaque nouvelle demande suit le protocole nominal. Le reste du réseau n'est pas recalculé
 ```
 
+Implémenté (US07) : `DriverAgent.cancel_trip()` envoie `TRIP_CANCELLED` ; le coordinateur marque le conducteur inactif (il n'est plus jamais sollicité) et prévient chaque passager réservé ; l'agent passager relance aussitôt une demande dans une nouvelle conversation (`r-<passager>-<n+1>`), qui exclut ce conducteur et cite la précédente dans `parent_request_id`. Si le conducteur reçoit encore un appel d'offres ou une acceptation, il répond `DECLINE (NO_SEAT)` ou `BOOKING_FAILED (TRIP_CANCELLED)`. Une deuxième annulation exclut les deux conducteurs. Dans S3, chaque réaffectation est traitée en moins de 4 ms.
+
 ### 5.5 Retard signalé
 
 `DELAY_REPORTED` (conducteur → coordinateur) donne les nouvelles heures pour chaque réservation. Le coordinateur envoie `ETA_UPDATED` à chaque passager concerné, avec `within_window`. Si l'arrivée sort de sa fenêtre, l'agent passager envoie `BOOKING_CANCELLED (ETA_OUT_OF_WINDOW)` au conducteur, puis une nouvelle `RIDE_REQUEST` qui exclut ce conducteur.
@@ -363,6 +365,18 @@ Ce que mesure le banc, à partir du journal du bus :
 | Déterminisme | empreinte SHA-256 du journal sur 10 exécutions : 10 empreintes identiques attendues |
 | Mémoire | pic `tracemalloc` du moteur, comparé entre la 1re et la 10e exécution |
 
+Le banc se lance avec `python -m mboaride_agents.bench` (depuis `agents/`), ou `--json` pour une sortie exploitable par l'écran de démonstration (US15). Les deux exécutions mesurées avec `tracemalloc`, plus lentes, sont exclues des temps. Le code de sortie vaut 0 si toutes les cibles sont atteintes.
+
+Résultats actuels (graine 42, 10 exécutions par scénario, toutes les cibles atteintes) :
+
+| Scénario | Équipages | Convergence (médiane) | Messages par équipage | Tours par équipage | Empreintes distinctes | Mémoire 1re / 10e |
+|---|---|---|---|---|---|---|
+| S1 matin en entreprise | 30 / 50 | 26 ms | 16,5 (max 21) | 1,00 | 1 | 897 / 865 Kio |
+| S3 annulations | 27 / 50, 4 annulés | 23 ms (réaffectation ≤ 4 ms) | 16,4 (max 21) | 1,00 | 1 | 917 / 916 Kio |
+| S5 mode manuel | 29 / 50 | 21 ms | 16,7 (max 33) | 1,03 | 1 | 878 / 876 Kio |
+
+Dans S3, les passagers des conducteurs annulés relancent bien leur demande, mais à 6 h 30 il reste peu de conducteurs compatibles : un passager est réaffecté puis perd aussi son second conducteur (tiré au sort parmi les annulations), les autres reçoivent `NO_CREW` avec la suggestion d'élargir leur fenêtre. Le déterminisme est aussi vérifié dans des processus Python séparés avec des graines de hachage différentes (`tests/test_determinism.py`).
+
 Les motifs de refus (`DECLINE.reason`, `NO_CREW.reason`) alimentent aussi le bilan durable, par exemple pour expliquer pourquoi seuls 14 élèves sur 30 trouvent un équipage dans S2.
 
 ## 7 bis. Implémentation
@@ -374,10 +388,11 @@ Les motifs de refus (`DECLINE.reason`, `NO_CREW.reason`) alimentent aussi le bil
 | `organization.py` | agent organisation : membres, élèves de 12 ans et plus avec autorisation, plafond de prix, partenaires |
 | `driver.py` | agent conducteur : offre ou refus, puis réservation ou `SEAT_TAKEN` à l'acceptation |
 | `passenger.py` | agent passager : classement des offres, modes autonome et manuel |
-| `engine.py` | moteur : inscription des agents, soumission des demandes, actions de l'utilisateur en mode manuel, mesures |
-| `scenarios.py` | scénarios simulés à graine fixe (S1 pour l'instant) |
+| `engine.py` | moteur : inscription des agents, soumission des demandes, actions de l'utilisateur en mode manuel, annulation d'un trajet, mesures |
+| `scenarios.py` | scénarios simulés à graine fixe : S1 (matin en entreprise), S3 (annulations), S5 (mode manuel) |
+| `bench.py` | banc de mesure : convergence, messages, déterminisme et mémoire par scénario, en texte ou en JSON |
 
-Mesures actuelles sur S1 (graine 42, 20 conducteurs, 50 passagers) : 30 équipages, 16,5 messages par équipage (21 au plus), environ 20 ms de traitement, même empreinte sur 10 exécutions.
+Les mesures actuelles sont données en section 7.
 
 ## 8. Interface avec l'API Node (proposition, à définir avec le backend)
 

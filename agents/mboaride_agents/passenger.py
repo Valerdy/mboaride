@@ -10,6 +10,7 @@ Voir docs/architecture-multi-agents.md, sections 4 (protocole et score) et 5.
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime
 from fractions import Fraction
@@ -33,6 +34,12 @@ ACCEPTING = "ACCEPTING"            # acceptation envoyée, confirmation attendue
 CONFIRMED = "CONFIRMED"            # équipage confirmé
 NO_CREW = "NO_CREW"                # aucun équipage trouvé
 WITHDRAWN = "WITHDRAWN"            # demande retirée par l'utilisateur
+FINAL_STATES = frozenset({CONFIRMED, NO_CREW, WITHDRAWN})
+
+
+def conversation_id_for(passenger_id: str, number: int) -> str:
+    """Identifiant de la n-ième demande d'un passager : r-<passager>-<n>."""
+    return f"r-{passenger_id}-{number}"
 
 
 def _aware(moment: datetime, name: str) -> None:
@@ -292,6 +299,11 @@ class PassengerAgent:
     def __init__(self, request: PassengerRequest, conversation_id: str):
         self.request = request
         self.conversation_id = conversation_id
+        self.history: list[str] = [conversation_id]   # toutes les demandes de ce passager, dans l'ordre
+        self.cancelled_bookings: list[dict[str, Any]] = []  # corps des CREW_CANCELLED reçus
+        self._reset()
+
+    def _reset(self) -> None:
         self.state = NEW
         self.round = 0
         self.expected: tuple[str, ...] = ()           # conducteurs sollicités dans le tour en cours
@@ -314,12 +326,23 @@ class PassengerAgent:
 
     # Messages envoyés à l'initiative du passager ou de l'utilisateur.
 
-    def start(self) -> messages.Message:
+    def start(self, in_reply_to: str | None = None) -> messages.Message:
         """Brouillon du RIDE_REQUEST qui ouvre la négociation."""
         self._require(NEW)
         self.state = SUBMITTED
         return messages.draft("RIDE_REQUEST", sender=self.agent_id, receiver=COORDINATOR,
-                              conversation_id=self.conversation_id, in_reply_to=None, body=self.request.to_body())
+                              conversation_id=self.conversation_id, in_reply_to=in_reply_to, body=self.request.to_body())
+
+    def renew(self, request: PassengerRequest, in_reply_to: str | None = None) -> messages.Message:
+        """Ouvre une nouvelle demande (nouvelle conversation) une fois la précédente terminée."""
+        self._require(*FINAL_STATES)
+        if request.passenger_id != self.request.passenger_id:
+            raise ValueError("Une nouvelle demande doit venir du même passager")
+        self.request = request
+        self.conversation_id = conversation_id_for(request.passenger_id, len(self.history) + 1)
+        self.history.append(self.conversation_id)
+        self._reset()
+        return self.start(in_reply_to)
 
     def choose(self, offer_id: str) -> list[messages.Message]:
         """Mode manuel : l'utilisateur choisit une des offres présentées."""
@@ -357,6 +380,7 @@ class PassengerAgent:
             "BOOKING_FAILED": self._on_booking_failed,
             "CREW_CONFIRMED": self._on_crew_confirmed,
             "NO_CREW": self._on_no_crew,
+            "CREW_CANCELLED": self._on_crew_cancelled,
         }.get(message["type"])
         if handler is None:
             raise ValueError(f"L'agent passager ne traite pas encore les messages {message['type']}")
@@ -420,6 +444,18 @@ class PassengerAgent:
         self.booking = message["body"]
         self.state = CONFIRMED
         return []
+
+    def _on_crew_cancelled(self, message: messages.Message) -> list[messages.Message]:
+        """Le conducteur a annulé (US07) : nouvelle demande automatique, sans ce conducteur."""
+        self._require(CONFIRMED)
+        body = message["body"]
+        if self.booking is None or body["booking_id"] != self.booking["booking_id"]:
+            raise ValueError("Annulation reçue pour une autre réservation que celle du passager")
+        self.cancelled_bookings.append(body)
+        previous = self.conversation_id
+        request = dataclasses.replace(self.request, exclude_drivers=self.request.exclude_drivers | {body["driver"]},
+                                      parent_request_id=previous)
+        return [self.renew(request, in_reply_to=message["id"])]
 
     def _on_no_crew(self, message: messages.Message) -> list[messages.Message]:
         self._require(SUBMITTED)

@@ -293,3 +293,114 @@ def test_s1_meets_the_grid_targets():
     assert m.elapsed_s < 2                 # convergence en moins de 2 secondes
     assert m.messages_per_crew < 20        # moins de 20 messages par équipage
     assert m.crews + m.no_crew == m.requests
+
+
+# --- Réaffectation automatique quand le conducteur annule (US07) -------------------------------------
+
+CANCEL_AT = datetime.fromisoformat("2026-11-10T06:30:00+01:00")
+
+
+def booked_with_d03():
+    """Grâce réserve chez d03 (meilleure offre) ; d07 reste disponible."""
+    e = engine(d07(), d03())
+    conv = e.submit(GRACE, AT)
+    run(e)
+    assert e.passenger(conv).booking["driver"] == "driver:d03"
+    return e, conv
+
+
+def test_passenger_is_reassigned_when_the_driver_cancels():
+    e, conv = booked_with_d03()
+    e.cancel_trip("d03", CANCEL_AT)
+    run(e)
+    assert types(e, conv)[-1] == "CREW_CANCELLED"
+    passenger = e.passenger(conv)
+    assert passenger.history == ["r-p042-1", "r-p042-2"]
+    assert (passenger.state, passenger.booking["driver"]) == (CONFIRMED, "driver:d07")
+    relaunch = e.conversation_log("r-p042-2")
+    cancelled = e.conversation_log(conv)[-1]
+    assert relaunch[0]["type"] == "RIDE_REQUEST" and relaunch[0]["in_reply_to"] == cancelled["id"]
+    assert relaunch[0]["body"]["exclude_drivers"] == ["driver:d03"]
+    assert relaunch[0]["body"]["parent_request_id"] == "r-p042-1"
+    assert relaunch[-1]["type"] == "CREW_CONFIRMED"
+
+
+def test_reassignment_takes_less_than_two_seconds():
+    e, _ = booked_with_d03()
+    e.cancel_trip("d03", CANCEL_AT)
+    run(e)
+    assert e.last_run_s < 2
+    m = e.metrics()
+    assert (m.cancelled_crews, m.renegotiations, m.reassigned, m.crews) == (1, 1, 1, 1)
+
+
+def test_cancelled_driver_is_never_solicited_again():
+    e, _ = booked_with_d03()
+    e.cancel_trip("d03", CANCEL_AT)
+    run(e)
+    e.submit(dataclasses.replace(GRACE, passenger_id="p043"), AT)
+    run(e)
+    after = e.bus.log[[m["type"] for m in e.bus.log].index("TRIP_CANCELLED"):]
+    assert all("driver:d03" not in m["body"].get("cfp_sent_to", []) for m in after)
+
+
+def test_only_the_cancelled_driver_passengers_renegotiate():
+    e = engine(d07(), d03(), driver("d05", departure="06:56", comfort=frozenset({"AIR_CONDITIONING"})))
+    # p043 exclut d03 : les deux passagers ont des conducteurs différents.
+    convs = e.submit_many([(GRACE, AT),
+                           (dataclasses.replace(GRACE, passenger_id="p043", exclude_drivers=frozenset({"driver:d03"})), AT)])
+    run(e)
+    drivers = {c: e.passenger(c).booking["driver"] for c in convs}
+    assert drivers[convs[0]] != drivers[convs[1]]
+    cancelled_driver = drivers[convs[0]]
+    e.cancel_trip(cancelled_driver.split(":")[1], CANCEL_AT)
+    start = len(e.bus.log)
+    run(e)
+    concerned = {f"t-{cancelled_driver.split(':')[1]}"}
+    for c in convs:
+        if drivers[c] == cancelled_driver:
+            concerned.update(e.passenger(c).history)
+    assert {m["conversation_id"] for m in e.bus.log[start - 1:]} <= concerned
+
+
+def test_second_cancellation_excludes_both_drivers():
+    e, conv = booked_with_d03()
+    e.cancel_trip("d03", CANCEL_AT)
+    run(e)
+    e.cancel_trip("d07", CANCEL_AT)
+    run(e)
+    passenger = e.passenger(conv)
+    assert passenger.history == ["r-p042-1", "r-p042-2", "r-p042-3"]
+    third = e.conversation_log("r-p042-3")
+    assert third[0]["body"]["exclude_drivers"] == ["driver:d03", "driver:d07"]
+    assert passenger.state == NO_CREW   # plus aucun conducteur
+
+
+def test_driver_without_passengers_cancels_silently():
+    e = engine(d07())
+    e.cancel_trip("d07", CANCEL_AT)
+    run(e)
+    assert [m["type"] for m in e.bus.log] == ["TRIP_CANCELLED"]
+
+
+def test_trip_cannot_be_cancelled_twice():
+    e = engine(d07())
+    e.cancel_trip("d07", CANCEL_AT)
+    with pytest.raises(ValueError):
+        e.cancel_trip("d07", CANCEL_AT)
+
+
+def test_user_actions_refer_to_the_current_request():
+    e = engine(d07(), d03(), driver("d05", departure="06:56"))
+    conv = e.submit(dataclasses.replace(GRACE, mode="MANUAL"), AT)
+    run(e)
+    e.choose(conv, e.passenger(conv).proposals[0].offer_id)
+    run(e)
+    e.cancel_trip(e.passenger(conv).booking["driver"].split(":")[1], CANCEL_AT)
+    run(e)
+    assert e.passenger(conv).conversation_id == "r-p042-2"
+    with pytest.raises(ValueError):
+        e.withdraw(conv)          # l'ancienne demande est close
+    e.withdraw("r-p042-2")
+    run(e)
+    assert e.passenger(conv).state == WITHDRAWN
