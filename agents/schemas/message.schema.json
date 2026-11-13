@@ -268,6 +268,7 @@
         "offer_id": { "$ref": "#/$defs/id" },
         "passenger": { "$ref": "#/$defs/passenger" },
         "price": { "$ref": "#/$defs/fcfa" },
+        "pickup_point": { "description": "Optionnel (ajouté en 1.1) : repris par le coordinateur dans CREW_CONFIRMED.", "$ref": "#/$defs/point" },
         "pickup_time": { "$ref": "#/$defs/dateTime" },
         "dropoff_time": { "$ref": "#/$defs/dateTime" },
         "seats_left": { "type": "integer", "minimum": 0 }

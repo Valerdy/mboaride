@@ -76,11 +76,15 @@ L'agent passager revérifie les contraintes dures sur chaque offre reçue avant 
 
 Le coordinateur n'envoie pas l'appel d'offres à tous les conducteurs. Il présélectionne, avec des tests bon marché, ceux qui :
 
-- sont agréés, ont au moins une place libre connue et appartiennent au cercle du tour ;
-- partent à une heure compatible avec la fenêtre d'arrivée ;
-- passent assez près du départ et de l'arrivée du passager (distance à vol d'oiseau à leur trajet, sans appel à OSRM).
+- sont agréés, ont au moins une place libre connue, n'ont pas déjà été sollicités pour cette demande et ne sont pas exclus par le passager ;
+- appartiennent au cercle du tour et l'acceptent : même organisation que le passager (ORGANIZATION), organisation partenaire (PARTNERS), ou tout conducteur qui accepte le réseau public (PUBLIC) ;
+- acceptent les élèves si le passager est un élève, font le même type de trajet (urbain ou interurbain) et offrent le confort obligatoire demandé ;
+- déposeraient le passager dans sa fenêtre d'arrivée, à 15 minutes près : départ du conducteur + trajet jusqu'au passager + trajet partagé, estimés à vol d'oiseau × 1,3 à 20 km/h en ville (60 km/h en interurbain) ;
+- ont un détour à vol d'oiseau inférieur à leur détour maximal (borne optimiste, sans appel à OSRM).
 
 Il les trie par écart estimé croissant, puis par identifiant, et garde les **K premiers** (`cfp_fanout`, 5 par défaut). K borne directement le nombre de messages et le nombre d'appels à OSRM. Si aucun conducteur ne passe la présélection, le coordinateur passe au cercle suivant sans envoyer de message.
+
+Sur le scénario S1, l'estimation de l'heure de dépose et le contrôle du confort ont fait passer les appels d'offres de 294 à 196 et les messages par équipage de 18 à 16,5 en moyenne (21 au plus).
 
 ## 3. Bus de messages et déterminisme
 
@@ -297,7 +301,7 @@ Tous les messages ont exactement ces champs, et aucun autre (le schéma refuse l
 | 6 | `PROPOSAL` | PROPOSE | conducteur → passager | offre, heures, point de prise, détour, détour max, distance partagée, prix détaillé, confort |
 | 7 | `DECLINE` | REFUSE | conducteur → passager | tour, motif |
 | 8 | `ACCEPT` | ACCEPT_PROPOSAL | passager → conducteur | offre, tour |
-| 9 | `BOOKING_CONFIRMED` | CONFIRM | conducteur → coordinateur | réservation, passager, prix, heures, places restantes |
+| 9 | `BOOKING_CONFIRMED` | CONFIRM | conducteur → coordinateur | réservation, passager, prix, point de prise (optionnel, ajouté en 1.1), heures, places restantes |
 | 10 | `BOOKING_FAILED` | FAILURE | conducteur → passager | offre, motif (`SEAT_TAKEN`…) |
 | 11 | `CREW_CONFIRMED` | INFORM | coordinateur → passager | réservation, conducteur, point et heures, prix, nombre de tours |
 | 12 | `NO_ACCEPTABLE_OFFER` | INFORM | passager → coordinateur | tour, motif |
@@ -360,6 +364,20 @@ Ce que mesure le banc, à partir du journal du bus :
 | Mémoire | pic `tracemalloc` du moteur, comparé entre la 1re et la 10e exécution |
 
 Les motifs de refus (`DECLINE.reason`, `NO_CREW.reason`) alimentent aussi le bilan durable, par exemple pour expliquer pourquoi seuls 14 élèves sur 30 trouvent un équipage dans S2.
+
+## 7 bis. Implémentation
+
+| Module (`agents/mboaride_agents/`) | Rôle |
+|---|---|
+| `bus.py` | bus de messages déterministe : file unique, `seq`, journal, empreinte SHA-256 |
+| `coordinator.py` | agent coordinateur : présélection des K conducteurs, tours d'appel d'offres, élargissement des cercles, confirmation de l'équipage |
+| `organization.py` | agent organisation : membres, élèves de 12 ans et plus avec autorisation, plafond de prix, partenaires |
+| `driver.py` | agent conducteur : offre ou refus, puis réservation ou `SEAT_TAKEN` à l'acceptation |
+| `passenger.py` | agent passager : classement des offres, modes autonome et manuel |
+| `engine.py` | moteur : inscription des agents, soumission des demandes, actions de l'utilisateur en mode manuel, mesures |
+| `scenarios.py` | scénarios simulés à graine fixe (S1 pour l'instant) |
+
+Mesures actuelles sur S1 (graine 42, 20 conducteurs, 50 passagers) : 30 équipages, 16,5 messages par équipage (21 au plus), environ 20 ms de traitement, même empreinte sur 10 exécutions.
 
 ## 8. Interface avec l'API Node (proposition, à définir avec le backend)
 

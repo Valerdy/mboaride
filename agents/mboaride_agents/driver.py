@@ -54,8 +54,11 @@ class DriverProfile:
     accepts_students: bool = True
     approved: bool = True               # agrément MboaRide (pièces vérifiées)
     consumption_l_per_100km: float = 8.0
+    organization_id: str | None = None  # "organization:<id>" : cercle ORGANIZATION du conducteur
 
     def __post_init__(self):
+        if self.organization_id is not None and not self.organization_id.startswith("organization:"):
+            raise ValueError("organization_id doit être de la forme organization:<id>")
         if not 1 <= self.seats_total <= 8:
             raise ValueError("seats_total doit être entre 1 et 8")
         if self.max_detour_m < 1:
@@ -79,6 +82,10 @@ class DriverAgent:
         self.routing = routing
         self.pricing = pricing or PricingPolicy()
         self.seats_booked = seats_booked
+        # Offres en cours, non engageantes : offer_id -> passager, places demandées, corps de l'offre.
+        self.offers: dict[str, dict[str, Any]] = {}
+        # Réservations confirmées : booking_id -> détails.
+        self.bookings: dict[str, dict[str, Any]] = {}
 
     @property
     def agent_id(self) -> str:
@@ -94,13 +101,54 @@ class DriverAgent:
             raise ValueError(f"{self.agent_id} a reçu un message destiné à {message['receiver']}")
         if message["type"] == "CFP":
             return [await self.on_cfp(message)]
+        if message["type"] == "ACCEPT":
+            return [self.on_accept(message)]
         raise ValueError(f"L'agent conducteur ne traite pas encore les messages {message['type']}")
 
     async def on_cfp(self, cfp: messages.Message) -> messages.Message:
         body = cfp["body"]
         reason, offer = await self._evaluate(cfp["conversation_id"], body)
-        type_, out = ("DECLINE", {"round": body["round"], "reason": reason}) if reason else ("PROPOSAL", offer)
-        return messages.reply(cfp, type_, sender=self.agent_id, receiver=body["reply_to"], body=out)
+        if reason:
+            return messages.reply(cfp, "DECLINE", sender=self.agent_id, receiver=body["reply_to"],
+                                  body={"round": body["round"], "reason": reason})
+        self.offers[offer["offer_id"]] = {"passenger": body["reply_to"], "seats": body["seats"], "offer": offer}
+        return messages.reply(cfp, "PROPOSAL", sender=self.agent_id, receiver=body["reply_to"], body=offer)
+
+    def on_accept(self, accept: messages.Message) -> messages.Message:
+        """Acceptation d'une offre : réserve la place si elle est encore libre.
+
+        Les offres n'engagent pas le conducteur : si plusieurs passagers acceptent la
+        dernière place, le premier traité par le bus l'obtient, les suivants reçoivent
+        BOOKING_FAILED (SEAT_TAKEN) et passent à leur offre suivante.
+        """
+        offer_id = accept["body"]["offer_id"]
+        pending = self.offers.get(offer_id)
+        if pending is None or pending["passenger"] != accept["sender"]:
+            return self._booking_failed(accept, offer_id, "OFFER_UNKNOWN")
+        if pending["seats"] > self.seats_free:
+            del self.offers[offer_id]
+            return self._booking_failed(accept, offer_id, "SEAT_TAKEN")
+
+        del self.offers[offer_id]
+        self.seats_booked += pending["seats"]
+        booking_id = f"b-{self.profile.driver_id}-{len(self.bookings) + 1}"
+        offer = pending["offer"]
+        self.bookings[booking_id] = {"passenger": pending["passenger"], "seats": pending["seats"],
+                                     "conversation_id": accept["conversation_id"], "offer": offer}
+        return messages.reply(accept, "BOOKING_CONFIRMED", sender=self.agent_id, receiver=messages.COORDINATOR, body={
+            "booking_id": booking_id,
+            "offer_id": offer_id,
+            "passenger": pending["passenger"],
+            "price": offer["price"],
+            "pickup_point": offer["pickup_point"],
+            "pickup_time": offer["pickup_time"],
+            "dropoff_time": offer["dropoff_time"],
+            "seats_left": self.seats_free,
+        })
+
+    def _booking_failed(self, accept: messages.Message, offer_id: str, reason: str) -> messages.Message:
+        return messages.reply(accept, "BOOKING_FAILED", sender=self.agent_id, receiver=accept["sender"],
+                              body={"offer_id": offer_id, "reason": reason})
 
     async def _evaluate(self, conversation_id: str, cfp: dict[str, Any]) -> tuple[str | None, dict | None]:
         """(motif de refus, None) ou (None, corps de l'offre)."""
