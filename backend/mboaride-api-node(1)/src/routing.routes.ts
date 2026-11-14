@@ -6,13 +6,14 @@ import { HttpError } from "./errors.js";
 import { requireAuth } from "./middleware.js";
 import type { OsrmClient } from "./osrm.js";
 import { computeDetour, mapLimit } from "./routing.js";
+import { CreateRideRequestSchema } from "./schemas.js";
 
 const a = config.serviceArea;
 const latLng = z
-  .object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })
-  .refine((p) => p.lat >= a.minLat && p.lat <= a.maxLat && p.lng >= a.minLng && p.lng <= a.maxLng, {
-    message: "Point hors de la zone de service (Douala et environs)",
-  });
+    .object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })
+    .refine((p) => p.lat >= a.minLat && p.lat <= a.maxLat && p.lng >= a.minLng && p.lng <= a.maxLng, {
+      message: "Point hors de la zone de service (Douala et environs)",
+    });
 const trip = z.object({ origin: latLng, destination: latLng });
 
 const routeSchema = z.object({ from: latLng, to: latLng, include_geometry: z.boolean().default(true) });
@@ -38,6 +39,43 @@ export function routingRouter(db: Knex, osrm: OsrmClient): Router {
   });
 
   router.use(requireAuth(db));
+
+  /** US04 : Demander un trajet avec une fenêtre d'arrivée */
+  router.post("/ride-requests", async (req, res) => {
+    const validation = CreateRideRequestSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ errors: validation.error.format() });
+    }
+
+    const { origin, destination, windowStart, windowEnd, maxPrice, currency, preferences } = validation.data;
+
+    try {
+      // Insertion avec Knex dans votre base de données (à décommenter quand la table est prête dans db.ts)
+      /*
+      const [inserted] = await db("ride_requests")
+        .insert({
+          user_id: (req as any).user.id,
+          origin: typeof origin === "string" ? origin : JSON.stringify(origin),
+          destination: typeof destination === "string" ? destination : JSON.stringify(destination),
+          window_start: windowStart,
+          window_end: windowEnd,
+          max_price: maxPrice,
+          currency,
+          air_conditioning: preferences?.airConditioning ?? false,
+          silence: preferences?.silence ?? false,
+          status: "PENDING",
+        })
+        .returning("*");
+      */
+
+      return res.status(201).json({
+        message: "Demande de trajet enregistrée avec succès",
+        data: { origin, destination, windowStart, windowEnd, maxPrice, currency, preferences },
+      });
+    } catch (error) {
+      return res.status(500).json({ error: "Erreur lors du traitement de la demande" });
+    }
+  });
 
   /** Itinéraire entre deux points : distance, durée, tracé GeoJSON pour la carte Leaflet (US08). */
   router.post("/route", async (req, res) => {
