@@ -3,6 +3,7 @@ import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:pinput/pinput.dart';
 import '../services/auth_service.dart';
 import 'request_ride_screen.dart';
+import '../core/auth_session.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -100,6 +101,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       // Récupération du token JWT depuis la réponse verifyOtp (ou fallback sur _savedToken)
       final body = res['body'];
       final String token = (body is Map ? (body['token'] ?? body['access_token']) : null) ?? _savedToken ?? '';
+
+      AuthSession.accessToken = token.isEmpty ? null : token;
 
       // Redirection directe vers la page RequestRideScreen
       Navigator.pushReplacement(

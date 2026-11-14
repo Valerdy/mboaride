@@ -3,6 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../core/app_config.dart';
+import '../core/auth_session.dart';
+import '../features/ride_request/data/api_ride_request_repository.dart';
+import '../features/ride_request/data/ride_request_repository.dart';
+import '../features/ride_request/domain/ride_request.dart';
+import 'crew_map_screen.dart';
 
 class RequestRideScreen extends StatefulWidget {
   final String token;
@@ -29,6 +35,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   bool _isLoading = false;
   bool _isRouteLoading = false;
   bool _selectingOriginOnMap = true;
+  RideDay _day = RideDay.today;
 
   LatLng? _originCoords;
   LatLng? _destCoords;
@@ -56,6 +63,9 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   @override
   void initState() {
     super.initState();
+    final n = DateTime.now();
+    _day = n.hour * 60 + n.minute >= 7 * 60 + 30 ? RideDay.tomorrow : RideDay.today;
+    AuthSession.accessToken = widget.token.isEmpty ? null : widget.token;
     _originFocus.addListener(() {
       if (_originFocus.hasFocus) {
         setState(() => _selectingOriginOnMap = true);
@@ -70,6 +80,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
 
   @override
   void dispose() {
+    _mapController.dispose();
     _originController.dispose();
     _destinationController.dispose();
     _priceController.dispose();
@@ -164,11 +175,12 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
     setState(() => _isRouteLoading = true);
 
     try {
+      // 1. Essai via votre backend MboaRide
       final response = await http.post(
-        Uri.parse('http://localhost:8000/routes/route'),
+        Uri.parse('${AppConfig.apiBaseUrl}/routes/route'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${widget.token}',
+          if (widget.token.isNotEmpty) 'Authorization': 'Bearer ${widget.token}',
         },
         body: jsonEncode({
           'from': {'lat': _originCoords!.latitude, 'lng': _originCoords!.longitude},
@@ -196,18 +208,51 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
         }
       }
     } catch (e) {
-      debugPrint('Erreur chargement itinéraire OSRM: $e');
+      debugPrint('Backend indisponible, bascule vers OSRM public: $e');
+    }
+
+    // 2. Fallback vers l'API publique OSRM pour tracer les vraies routes
+    try {
+      final osrmUrl = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+            '${_originCoords!.longitude},${_originCoords!.latitude};'
+            '${_destCoords!.longitude},${_destCoords!.latitude}'
+            '?overview=full&geometries=geojson',
+      );
+      final osrmRes = await http.get(osrmUrl);
+
+      if (osrmRes.statusCode == 200) {
+        final data = jsonDecode(osrmRes.body);
+        final routes = data['routes'] as List?;
+        if (routes != null && routes.isNotEmpty) {
+          final route = routes[0];
+          final List coords = route['geometry']['coordinates'];
+          final double distanceKm = (route['distance'] ?? 0) / 1000.0;
+          final int durationMin = ((route['duration'] ?? 0) / 60).round();
+
+          final points = coords.map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
+
+          setState(() {
+            _routePoints = points;
+            _routeSummary = '${distanceKm.toStringAsFixed(1)} km • ~$durationMin min';
+          });
+          _fitMapBounds();
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Erreur OSRM public: $e');
     } finally {
       if (mounted) setState(() => _isRouteLoading = false);
     }
 
+    // 3. Dernier recours si hors-ligne : ligne directe
     setState(() {
       _routePoints = [_originCoords!, _destCoords!];
       _routeSummary = 'Itinéraire direct';
     });
     _fitMapBounds();
   }
-
   void _fitMapBounds() {
     if (_originCoords == null || _destCoords == null) return;
     try {
@@ -267,49 +312,77 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   }
 
   Future<void> _submitRideRequest() async {
-    if (_originCoords == null || _destCoords == null) {
-      _showSnack('Veuillez sélectionner un point de départ et une destination', isError: true);
+    final now = DateTime.now();
+    final base = _day == RideDay.today ? now : now.add(const Duration(days: 1));
+    final start = DateTime(base.year, base.month, base.day, _windowStart.hour, _windowStart.minute);
+    final end = DateTime(base.year, base.month, base.day, _windowEnd.hour, _windowEnd.minute);
+    final price = int.tryParse(_priceController.text.trim());
+
+    final pickup = _originCoords == null
+        ? null
+        : Place(
+      name: _originController.text.trim().isEmpty ? 'Départ' : _originController.text.trim(),
+      lat: _originCoords!.latitude,
+      lng: _originCoords!.longitude,
+    );
+    final dropoff = _destCoords == null
+        ? null
+        : Place(
+      name: _destinationController.text.trim().isEmpty ? 'Arrivée' : _destinationController.text.trim(),
+      lat: _destCoords!.latitude,
+      lng: _destCoords!.longitude,
+    );
+
+    final validation = validateRideRequest(
+      pickup: pickup,
+      dropoff: dropoff,
+      windowStart: start,
+      windowEnd: end,
+      maxPriceFcfa: price,
+      now: now,
+    );
+    if (!validation.isValid) {
+      _showSnack(validation.errors.values.first, isError: true);
       return;
     }
 
     setState(() => _isLoading = true);
-
     try {
-      final now = DateTime.now();
-      final startDt = DateTime(now.year, now.month, now.day, _windowStart.hour, _windowStart.minute);
-      final endDt = DateTime(now.year, now.month, now.day, _windowEnd.hour, _windowEnd.minute);
-
-      final response = await http.post(
-        Uri.parse('http://localhost:8000/routes/ride-requests'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${widget.token}',
-        },
-        body: jsonEncode({
-          'origin': {'lat': _originCoords!.latitude, 'lng': _originCoords!.longitude},
-          'destination': {'lat': _destCoords!.latitude, 'lng': _destCoords!.longitude},
-          'windowStart': startDt.toUtc().toIso8601String(),
-          'windowEnd': endDt.toUtc().toIso8601String(),
-          'maxPrice': int.tryParse(_priceController.text) ?? 500,
-          'currency': 'XAF',
-          'preferences': {
-            'airConditioning': _climatisation,
-            'silence': _silence,
+      final RideRequestRepository repository =
+      AppConfig.useFakeApi ? FakeRideRequestRepository() : ApiRideRequestRepository();
+      final result = await repository.create(
+        RideRequest(
+          pickup: pickup!,
+          dropoff: dropoff!,
+          windowStart: start,
+          windowEnd: end,
+          maxPriceFcfa: price!,
+          comforts: <Comfort>{
+            if (_climatisation) Comfort.airConditioning,
+            if (_silence) Comfort.quiet,
           },
-        }),
+        ),
       );
-
-      final data = jsonDecode(response.body);
       if (!mounted) return;
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        _showSnack('Demande envoyée ! Recherche d\'équipage en cours...');
-      } else {
-        _showSnack(data['detail'] ?? data['message'] ?? 'Données invalides', isError: true);
-      }
-    } catch (e) {
       if (!mounted) return;
-      _showSnack('Impossible de joindre le serveur', isError: true);
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CrewMapScreen(
+            requestId: result.id,
+            token: widget.token,
+            initialPickup: _originCoords!,
+            initialDropoff: _destCoords!,
+            pickupName: pickup.name,
+            dropoffName: dropoff.name,
+          ),
+        ),
+      );    } on RideRequestException catch (e) {
+      if (!mounted) return;
+      _showSnack(e.message, isError: true);
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Une erreur inattendue est survenue', isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -441,6 +514,20 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
 
                   const SizedBox(height: 16),
 
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<RideDay>(
+                      segments: const [
+                        ButtonSegment(value: RideDay.today, label: Text("Aujourd'hui")),
+                        ButtonSegment(value: RideDay.tomorrow, label: Text('Demain')),
+                      ],
+                      selected: {_day},
+                      onSelectionChanged: (s) => setState(() => _day = s.first),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
                   Row(
                     children: [
                       Expanded(
@@ -528,7 +615,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                             ),
                             children: [
                               TileLayer(
-                                urlTemplate: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'com.example.mboaride',
                               ),
                               if (_routePoints.isNotEmpty)
                                 PolylineLayer(
@@ -557,6 +645,9 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                                       child: const Icon(Icons.location_on, color: Colors.redAccent, size: 36),
                                     ),
                                 ],
+                              ),
+                              const RichAttributionWidget(
+                                attributions: [TextSourceAttribution('© OpenStreetMap contributors')],
                               ),
                             ],
                           ),
@@ -771,9 +862,9 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
             Text(
               label,
               style: TextStyle(
-                color: selected ? Colors.white : Colors.black87,
-                fontWeight: FontWeight.w600,
                 fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: selected ? Colors.white : Colors.black87,
               ),
             ),
           ],
@@ -785,9 +876,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   Widget _buildMapModeBtn(String label, bool active, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
         decoration: BoxDecoration(
           color: active ? primaryGreen : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
@@ -795,9 +885,9 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
         child: Text(
           label,
           style: TextStyle(
-            color: active ? Colors.white : Colors.black87,
             fontSize: 11,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.bold,
+            color: active ? Colors.white : Colors.black54,
           ),
         ),
       ),
