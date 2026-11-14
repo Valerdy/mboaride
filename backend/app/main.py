@@ -10,7 +10,7 @@ import psycopg
 from fastapi import Depends, FastAPI
 
 from .db import get_conn
-from .routes import organisation, paiement, preferences, prix
+from .routes import annulation, demo, organisation, paiement, preferences, prix
 from .securite import utilisateur_courant
 
 app = FastAPI(title="MboaRide", version="0.3.0",
@@ -20,7 +20,9 @@ app = FastAPI(title="MboaRide", version="0.3.0",
 app.include_router(preferences.router)
 app.include_router(prix.router)
 app.include_router(paiement.router)
+app.include_router(annulation.router)
 app.include_router(organisation.router)
+app.include_router(demo.router)
 
 
 @app.get("/health", tags=["Santé"])
