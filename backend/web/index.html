@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MboaRide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="barre">
+    <div class="logo"><span class="pin" aria-hidden="true"></span><b>Mboa</b><b class="vert">Ride</b></div>
+    <nav id="onglets" role="tablist">
+      <button role="tab" data-vue="exigences" aria-selected="true">Mes exigences</button>
+      <button role="tab" data-vue="prix">Prix et confirmation</button>
+      <button role="tab" data-vue="paiements">Paiements</button>
+      <button role="tab" data-vue="trajets" hidden>Mes trajets</button>
+      <button role="tab" data-vue="console" hidden>Console entreprise</button>
+      <button role="tab" data-vue="demo" class="onglet-demo">Démo</button>
+    </nav>
+    <div class="droite">
+      <button id="cloche" class="cloche" aria-label="Notifications" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.4-2h-4.8a2.5 2.5 0 0 0 2.4 2Zm7-6V11a7 7 0 0 0-5.5-6.8V3a1.5 1.5 0 0 0-3 0v1.2A7 7 0 0 0 5 11v5l-2 2v1h18v-1Z" fill="currentColor"/></svg>
+        <span id="badge" class="badge" hidden>0</span>
+      </button>
+      <label class="compte">Compte
+        <select id="utilisateur" aria-label="Utilisateur de démonstration"></select>
+      </label>
+    </div>
+    <div id="panneau-notifs" class="panneau-notifs" hidden></div>
+  </header>
+
+  <aside id="fil" class="fil" hidden>
+    <div class="fil-tete"><b id="fil-titre"></b><button id="fil-fermer" class="lien" aria-label="Fermer le fil conducteur">Fermer</button></div>
+    <ol id="fil-etapes"></ol>
+  </aside>
+
+  <main>
+    <!-- US02 ------------------------------------------------------------- -->
+    <section id="vue-exigences" class="vue mobile" aria-labelledby="t-exig">
+      <div class="entete"><h1 id="t-exig">Mes exigences</h1><p>US02 · elles guident les propositions des agents</p></div>
+      <form id="form-exigences" class="corps">
+        <fieldset>
+          <legend>Confort souhaité</legend>
+          <div class="puces">
+            <label class="puce"><input type="checkbox" name="climatisation"><span>Climatisation</span></label>
+            <label class="puce"><input type="checkbox" name="non_fumeur"><span>Non-fumeur</span></label>
+            <label class="puce"><input type="checkbox" name="silence"><span>Silence</span></label>
+          </div>
+        </fieldset>
+        <label class="champ">Prix maximal par trajet
+          <span class="saisie"><input type="number" name="prix_max_fcfa" min="50" max="20000" step="25" required> FCFA</span>
+        </label>
+        <fieldset>
+          <legend>Cercle de confiance</legend>
+          <div class="puces" id="cercles">
+            <label class="puce"><input type="radio" name="cercle" value="organisation"><span>Collègues</span></label>
+            <label class="puce"><input type="radio" name="cercle" value="partenaires"><span>Partenaires</span></label>
+            <label class="puce"><input type="radio" name="cercle" value="public"><span>Public vérifié</span></label>
+          </div>
+          <p class="aide" id="aide-cercle"></p>
+        </fieldset>
+        <fieldset>
+          <legend>Mode de réservation</legend>
+          <div class="duo">
+            <label class="bascule"><input type="radio" name="mode" value="manuel"><span>Manuel</span></label>
+            <label class="bascule"><input type="radio" name="mode" value="autonome"><span>Autonome</span></label>
+          </div>
+          <p class="aide">Manuel : vous choisissez parmi les offres. Autonome : la meilleure offre est réservée pour vous, et vous êtes réaffecté seul si votre conducteur annule.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Je privilégie</legend>
+          <div class="duo">
+            <label class="bascule"><input type="radio" name="priorite" value="heure"><span>L'heure d'arrivée</span></label>
+            <label class="bascule"><input type="radio" name="priorite" value="prix"><span>Le prix</span></label>
+          </div>
+        </fieldset>
+        <button class="btn" type="submit">Enregistrer</button>
+        <p class="message" id="msg-exigences" role="status"></p>
+        <details class="technique"><summary>Paramètres envoyés au moteur multi-agents</summary><pre id="moteur-params"></pre></details>
+      </form>
+    </section>
+
+    <!-- US09 ------------------------------------------------------------- -->
+    <section id="vue-prix" class="vue mobile" hidden aria-labelledby="t-prix">
+      <div class="entete"><h1 id="t-prix">Confirmer le trajet</h1><p>US09 · le prix est connu avant de confirmer</p></div>
+      <div class="corps">
+        <label class="champ">Ma demande
+          <select id="demande"></select>
+        </label>
+        <div id="diagnostic" hidden></div>
+        <div id="offres" class="liste"></div>
+        <div id="detail-prix" hidden></div>
+        <p class="message" id="msg-prix" role="status"></p>
+        <div id="paiement-prix" hidden></div>
+      </div>
+    </section>
+
+    <!-- US10 ------------------------------------------------------------- -->
+    <section id="vue-paiements" class="vue mobile" hidden aria-labelledby="t-paie">
+      <div class="entete"><h1 id="t-paie">Mes paiements</h1><p>US10 · Mobile Money (simulé)</p></div>
+      <div class="corps"><div id="liste-paiements" class="liste"></div><div id="paiement-zone"></div></div>
+    </section>
+
+    <!-- Conducteur : annulation d'une date ----------------------------- -->
+    <section id="vue-trajets" class="vue mobile" hidden aria-labelledby="t-trajets">
+      <div class="entete"><h1 id="t-trajets">Mes trajets</h1><p>Conducteur · prévenir ses passagers en cas d'empêchement</p></div>
+      <div class="corps"><div id="liste-trajets" class="liste"></div><div id="resultat-annulation"></div></div>
+    </section>
+
+    <!-- US13 + US14 ------------------------------------------------------ -->
+    <section id="vue-console" class="vue large" hidden aria-labelledby="t-console">
+      <div class="titre-console">
+        <h1 id="t-console">Tableau de bord · <span id="nom-org"></span></h1>
+        <div class="periode">
+          <label>Du <input type="date" id="du"></label>
+          <label>au <input type="date" id="au"></label>
+          <button class="btn secondaire petit" id="btn-csv">Exporter en CSV</button>
+        </div>
+      </div>
+
+      <h2 class="sous">Économies et CO₂ évité <small>US14</small></h2>
+      <div class="kpis" id="kpis-impact"></div>
+      <div class="grille2">
+        <div class="carte"><h3>Trajets partagés et CO₂ évité par mois</h3><div id="graphe-impact"></div></div>
+        <div class="carte"><h3>Comment ces chiffres sont calculés</h3><ul id="hypotheses" class="hypotheses"></ul></div>
+      </div>
+
+      <h2 class="sous">Adoption <small>US13</small></h2>
+      <div class="kpis" id="kpis-adoption"></div>
+      <div class="grille2">
+        <div class="carte"><h3>Membres inscrits et passagers actifs par mois</h3><div id="graphe-adoption"></div></div>
+        <div class="carte">
+          <h3>Inviter des employés</h3>
+          <form id="form-invit">
+            <textarea id="emails" rows="4" placeholder="Une adresse par ligne, avec son service si besoin :&#10;prenom.nom@entreprise-a.cm ; Finance" aria-label="Adresses e-mail"></textarea>
+            <label class="champ">Service par défaut (facultatif)
+              <input id="service-defaut" class="texte" maxlength="60" placeholder="Ex. Commercial">
+            </label>
+            <button class="btn" type="submit">Envoyer les invitations</button>
+          </form>
+          <p class="aide" id="aide-envoi">Chaque invité reçoit un e-mail avec son lien personnel, valable 30 jours ; il crée son compte depuis ce lien s'il n'en a pas.</p>
+          <div id="resultat-invit"></div>
+        </div>
+      </div>
+      <div class="grille2">
+        <div class="carte">
+          <div class="entete-tableau">
+            <h3>Suivi des invitations</h3>
+            <select id="filtre-statut" aria-label="Filtrer par statut">
+              <option value="">Toutes</option><option value="envoyee">En attente</option>
+              <option value="acceptee">Acceptées</option><option value="expiree">Expirées</option>
+            </select>
+          </div>
+          <div class="tableau-scroll"><table id="table-invit"><thead><tr><th>Adresse</th><th>Service</th><th>Statut</th><th>Envoyée le</th><th class="num">Trajets</th><th></th></tr></thead><tbody></tbody></table></div>
+        </div>
+        <div class="carte">
+          <h3>Adoption par service</h3>
+          <div class="tableau-scroll"><table id="table-services"><thead><tr><th>Service</th><th class="num">Membres</th><th class="num">Actifs 30 j</th><th class="num">Invités en attente</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SR-47 : scénarios de démonstration ------------------------------ -->
+    <section id="vue-demo" class="vue large" hidden aria-labelledby="t-demo">
+      <div class="titre-console"><h1 id="t-demo">Scénarios de démonstration</h1></div>
+      <p class="aide">Chaque scénario remet ses données à l'état de départ, se connecte avec le bon compte et ouvre le bon écran ; le fil conducteur reste affiché pendant la démonstration.</p>
+      <div id="scenarios" class="scenarios"></div>
+      <div class="carte">
+        <div class="entete-tableau"><h3>Boîte d'envoi des e-mails</h3><button class="btn secondaire petit" id="btn-courriels">Actualiser</button></div>
+        <div id="courriels" class="courriels"></div>
+      </div>
+    </section>
+
+    <!-- Lien d'invitation (US13) ---------------------------------------- -->
+    <section id="vue-rejoindre" class="vue mobile" hidden>
+      <div class="entete"><h1>Rejoindre un cercle</h1><p id="sous-rejoindre">Invitation reçue de votre organisation</p></div>
+      <div class="corps" id="corps-rejoindre"></div>
+    </section>
+  </main>
+  <footer>MboaRide · Groupe 8 · Maquette (données fictives, paiements et e-mails simulés)</footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>
