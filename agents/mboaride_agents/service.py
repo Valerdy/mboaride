@@ -34,7 +34,8 @@ from .passenger import PassengerAgent, PassengerRequest
 from .routing import EstimatedRouting, Point
 from .scenarios import SCENARIOS
 
-ESTIMATORS = {"URBAN": EstimatedRouting(speed_kmh=20), "INTERURBAN": EstimatedRouting(speed_kmh=60)}
+# Interurbain : environ 200 km à vol d'oiseau pour 240 km de route entre Douala et Yaoundé, d'où un facteur 1,2.
+ESTIMATORS = {"URBAN": EstimatedRouting(speed_kmh=20), "INTERURBAN": EstimatedRouting(speed_kmh=60, road_factor=1.2)}
 
 
 # --- Corps des requêtes -------------------------------------------------------------------------
