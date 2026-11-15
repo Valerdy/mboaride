@@ -27,6 +27,7 @@ Le format des messages est fixé par [`schemas/message.schema.json`](schemas/mes
 | `routing.py` | interface `RoutingService` et estimateur de détour local et déterministe |
 | `scenarios.py` | scénarios simulés à graine fixe : S1 (matin en entreprise), S3 (annulations), S5 (mode manuel) |
 | `bench.py` | banc de mesure : convergence, messages, déterminisme et mémoire par scénario |
+| `service.py` | service HTTP (FastAPI) qui expose le moteur à l'API de l'application |
 
 ```python
 import asyncio
@@ -42,6 +43,12 @@ Banc de mesure (les quatre critères de la grille, 10 exécutions par scénario)
 ```bash
 python -m mboaride_agents.bench             # S1, S3 et S5
 python -m mboaride_agents.bench S1 --json   # sortie JSON (écran de démonstration US15)
+```
+
+Service HTTP pour l'API de l'application (routes détaillées dans la section 8 du document d'architecture) :
+
+```bash
+AGENTS_SERVICE_KEY=une-cle-longue uvicorn mboaride_agents.service:app --port 8001
 ```
 
 Annulation d'un conducteur (US07) : `engine.cancel_trip("d07", heure)` puis `engine.run()` ; ses passagers
