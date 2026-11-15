@@ -22,7 +22,7 @@ import os
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from . import messages
@@ -271,11 +271,12 @@ def create_app(*, service_key: str | None = None, cfp_fanout: int = 5) -> FastAP
                 lambda: [run_scenario(name, body.runs, body.measure_memory) for name in body.scenarios])
             return [r.to_dict() for r in reports]
 
-    @app.post("/reset", status_code=204, dependencies=[Depends(authorize)])
-    async def reset() -> None:
+    @app.post("/reset", status_code=204, response_class=Response, dependencies=[Depends(authorize)])
+    async def reset() -> Response:
         """Repart d'un moteur vide (démonstration, tests). L'API doit ensuite réinscrire ses agents."""
         async with lock:
             state["engine"] = Engine(cfp_fanout=cfp_fanout)
+        return Response(status_code=204)
 
     return app
 
