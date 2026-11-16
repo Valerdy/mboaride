@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 
 from .driver import DriverAgent, DriverProfile, DriverTrip
 from .engine import Engine
+from .pricing import PricingPolicy
 from .organization import OrganizationAgent
 from .passenger import ArrivalWindow, PassengerRequest
 from .routing import EstimatedRouting, Point
@@ -43,13 +44,18 @@ class Scenario:
     cancellations: list[datetime] = field(default_factory=list)   # heures d'annulation (S3)
     manual_choices: bool = False                                   # utilisateurs simulés (S5)
 
-    def build(self, *, cfp_fanout: int = 5, validate: bool = False) -> Engine:
-        """Moteur prêt à tourner : agents inscrits, demandes publiées dans l'ordre."""
+    def build(self, *, cfp_fanout: int = 5, validate: bool = False,
+              pricing: PricingPolicy | None = None) -> Engine:
+        """Moteur prêt à tourner : agents inscrits, demandes publiées dans l'ordre.
+
+        `pricing` permet de rejouer le même scénario avec une autre règle de partage
+        des frais, ce dont se sert `scripts/comparer_regles_prix.py` (SR-51).
+        """
         engine = Engine(cfp_fanout=cfp_fanout, validate=validate)
         for organization in self.organizations:
             engine.add_organization(organization)
         for profile in self.drivers:
-            engine.add_driver(DriverAgent(profile, self.routing))
+            engine.add_driver(DriverAgent(profile, self.routing, pricing=pricing))
         engine.submit_many(self.requests)
         return engine
 

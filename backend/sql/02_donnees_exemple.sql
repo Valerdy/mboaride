@@ -58,9 +58,9 @@ INSERT INTO point_depart (id_trajet, ordre_passage, libelle, lat, lon, heure_pas
 
 INSERT INTO demande (id_demandeur, id_eleve, id_organisation, type_trajet, depart_libelle, depart_lat, depart_lon, arrivee_libelle, arrivee_lat, arrivee_lon,
                      arrivee_au_plus_tot, arrivee_au_plus_tard, date_unique, jours_semaine, prix_max_fcfa, mode_reservation, cercle_max, statut) VALUES
-  (2, NULL, 1,    'urbain',      'Kotto',  4.072000, 9.766000, 'Bonanjo',   4.042000, 9.689000, '07:30', '07:50', NULL,         '1111100', 400,  'manuel',   'partenaires', 'satisfaite'),
-  (3, 1,    3,    'urbain',      'Makepe', 4.081000, 9.752000, 'Bonapriso', 4.033000, 9.695000, '06:55', '07:15', NULL,         '1111100', 400,  'autonome', 'public',      'satisfaite'),
-  (3, 2,    3,    'urbain',      'Makepe', 4.081000, 9.752000, 'Bonapriso', 4.033000, 9.695000, '06:55', '07:15', NULL,         '1111100', 400,  'autonome', 'public',      'satisfaite'),
+  (2, NULL, 1,    'urbain',      'Kotto',  4.072000, 9.766000, 'Bonanjo',   4.042000, 9.689000, '07:30', '07:50', NULL,         '1111100', 600,  'manuel',   'partenaires', 'satisfaite'),
+  (3, 1,    3,    'urbain',      'Makepe', 4.081000, 9.752000, 'Bonapriso', 4.033000, 9.695000, '06:55', '07:15', NULL,         '1111100', 600,  'autonome', 'public',      'satisfaite'),
+  (3, 2,    3,    'urbain',      'Makepe', 4.081000, 9.752000, 'Bonapriso', 4.033000, 9.695000, '06:55', '07:15', NULL,         '1111100', 600,  'autonome', 'public',      'satisfaite'),
   (5, NULL, 4,    'urbain',      'Bonabéri', 4.073000, 9.657000, 'Campus C', 4.060000, 9.735000, '07:15', '07:30', NULL,       '1111100', 300,  'manuel',   'public',      'sans_equipage'),
   (6, NULL, NULL, 'interurbain', 'Ndokoti', 4.044000, 9.737000, 'Yaoundé', 3.866700, 11.516700, '17:30', '19:30', '2026-11-20', NULL,      3500, 'manuel',   'public',      'satisfaite');
 

@@ -3,7 +3,16 @@
 L'API ne refait aucun calcul : le prix (US09) vient de `pricing.quote` et les horaires
 de `routing.EstimatedRouting.detour`, exactement comme dans l'agent conducteur
 (`driver.DriverAgent._evaluate`). Le prix affiché avant confirmation est donc celui que
-les agents négocient, et changer la règle du diviseur (`PricingPolicy`) le change partout.
+les agents négocient, et changer la règle de partage des frais (`PricingPolicy`) le
+change partout.
+
+Règle appliquée par le produit (SR-51) : le coût du trajet commun, détour imposé
+compris, est partagé entre les occupants réellement à bord. Mesurée sur les scénarios
+du banc (`agents/scripts/comparer_regles_prix.py`), elle donne un prix moyen de
+249 FCFA, soit 42 % d'un taxi, et porte la couverture des frais du conducteur de 48 %
+à 66 %. L'ancienne règle, qui divisait le seul tronçon commun par toutes les places
+offertes même à vide, reste le défaut du moteur : c'est celle de l'exemple du document
+de vision et des messages documentés.
 """
 
 from __future__ import annotations
@@ -12,14 +21,15 @@ import asyncio
 from dataclasses import dataclass
 
 from . import config  # noqa: F401  (ajoute le dossier agents/ au chemin d'import)
-from mboaride_agents.pricing import PricingPolicy, Quote, quote  # type: ignore
+from mboaride_agents.pricing import (OCCUPANTS, SHARED_LEG_PLUS_DETOUR,  # type: ignore
+                                     PricingPolicy, Quote, quote)
 from mboaride_agents.routing import Detour, EstimatedRouting, Point  # type: ignore
 
 NIVEAUX = {0: "organisation", 1: "partenaires", 2: "public"}
 NIVEAU_CODE = {v: k for k, v in NIVEAUX.items()}
 CERCLE_PUBLIC = 2
 
-POLITIQUE = PricingPolicy()
+POLITIQUE = PricingPolicy(divisor_rule=OCCUPANTS, cost_basis=SHARED_LEG_PLUS_DETOUR)
 ROUTAGE_URBAIN = EstimatedRouting(speed_kmh=20.0)        # heures de pointe à Douala
 ROUTAGE_INTERURBAIN = EstimatedRouting(speed_kmh=60.0)   # axe Douala-Yaoundé
 
@@ -102,9 +112,10 @@ def distance_km(a_lat, a_lon, b_lat, b_lon, interurbain: bool = False) -> float:
 
 @dataclass(frozen=True)
 class DetailPrix:
-    distance_km: float
+    distance_km: float        # tronçon parcouru avec le passager
     conso_l100: float
     devis: Quote
+    base_km: float = 0.0      # distance sur laquelle porte le coût (tronçon + détour)
 
     @property
     def prix_fcfa(self) -> int:
@@ -116,11 +127,12 @@ class DetailPrix:
 
     def lignes(self) -> list[dict]:
         q = self.devis
-        out = [{"libelle": f"Carburant du trajet ({fr(self.distance_km)} km × {fr(self.conso_l100)} L/100 km "
-                           f"× {POLITIQUE.fuel_price_per_l} FCFA/L)", "montant_fcfa": q.fuel_cost}]
+        out = [{"libelle": f"Carburant du trajet commun et du détour ({fr(self.base_km or self.distance_km)} km "
+                           f"× {fr(self.conso_l100)} L/100 km × {POLITIQUE.fuel_price_per_l} FCFA/L)",
+                "montant_fcfa": q.fuel_cost}]
         if q.tolls:
             out.append({"libelle": "Péage", "montant_fcfa": q.tolls})
-        out.append({"libelle": f"Partagé entre {q.divisor} occupants (conducteur compris)",
+        out.append({"libelle": f"Partagé entre {q.divisor} occupant(s) à bord (conducteur compris)",
                     "montant_fcfa": q.price - q.commission})
         if q.commission:
             out.append({"libelle": "Commission MboaRide (10 %, trajets publics et interurbains)",
@@ -132,11 +144,13 @@ class DetailPrix:
 def detail_prix(trajet: Trajet, demande: Demande, niveau: int, places_reservees: int = 0) -> DetailPrix:
     """Devis de l'agent conducteur pour ce passager, décomposé ligne par ligne."""
     d = detour(trajet, demande)
-    q = quote(POLITIQUE, shared_distance_m=d.shared_distance_m, consumption_l_per_100km=trajet.conso_l100,
+    q = quote(POLITIQUE, shared_distance_m=d.shared_distance_m, detour_m=d.detour_m,
+              trip_distance_m=d.trip_distance_m, consumption_l_per_100km=trajet.conso_l100,
               tolls=trajet.peage_fcfa if trajet.interurbain else 0, seats_total=trajet.places,
               seats_booked=places_reservees, seats_requested=1, min_price=0,
               with_commission=niveau == CERCLE_PUBLIC or trajet.interurbain)
-    return DetailPrix(round(d.shared_distance_m / 1000, 2), trajet.conso_l100, q)
+    return DetailPrix(round(d.shared_distance_m / 1000, 2), trajet.conso_l100, q,
+                      base_km=round((d.shared_distance_m + d.detour_m) / 1000, 2))
 
 
 def horaires(trajet: Trajet, demande: Demande) -> tuple[str, str, float] | None:
