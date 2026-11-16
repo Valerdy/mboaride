@@ -1,14 +1,14 @@
 # Décision : quel backend pour la démonstration ?
 
-> **Statut** : à trancher par le groupe, idéalement avant le 16 novembre au soir (fin du sprint 3 le 20 novembre).
+> **Statut** : **décidé le 16 novembre 2026 : option C**, deux API qui communiquent (voir « Décision » en fin de fiche).
 > **Proposé par** : NGAPEPOUE Karl · **Concerne** : Cindy (API Node, application Flutter), Wilfried (API FastAPI, console web), Valerdy (déploiement), Karl (moteur d'agents)
 
 ## Pourquoi il faut trancher maintenant
 
 Le dépôt contient aujourd'hui **deux API** qui avancent en parallèle :
 
-- l'**API Node** de Cindy (`backend/mboaride-api-node(1)`, PR #9 et #11), utilisée par l'application Flutter ;
-- l'**API FastAPI** de Wilfried (`backend/app`, PR #13 à #19), utilisée par la console web de démonstration.
+- l'**API Node** de Cindy (`backend/mboaride-api-node(1)`, PR #23 et #25), utilisée par l'application Flutter ;
+- l'**API FastAPI** de Wilfried (`backend/app`, PR #27 à #33), utilisée par la console web de démonstration.
 
 Chacune a sa propre base de données (deux tables d'utilisateurs, de demandes, d'équipages) et **aucune ne forme les équipages avec le moteur multi-agents**, alors que c'est ce que la grille évalue : convergence en moins de 2 s, moins de 20 messages par équipage, mêmes résultats à chaque exécution, mémoire stable. Le moteur atteint ces cibles sur les cinq scénarios (voir `docs/architecture-multi-agents.md`, section 7), mais la démonstration ne passera pas par lui tant que ce choix n'est pas fait.
 
@@ -30,19 +30,19 @@ Chacune a sa propre base de données (deux tables d'utilisateurs, de demandes, d
 
 L'API appelle directement le moteur d'agents, dans le même programme.
 
-- **À faire** : porter en Python l'authentification de Cindy, le client OSRM et le temps réel (environ 580 lignes, plus leurs tests) ; faire passer la demande, le choix en mode manuel, l'annulation et la réaffectation par le moteur (la logique est déjà écrite dans la PR #20) ; garder un seul schéma de base ; rebrancher les 5 fichiers de l'application Flutter qui appellent l'API.
+- **À faire** : porter en Python l'authentification de Cindy, le client OSRM et le temps réel (environ 580 lignes, plus leurs tests) ; faire passer la demande, le choix en mode manuel, l'annulation et la réaffectation par le moteur (la logique est déjà écrite dans la PR #34) ; garder un seul schéma de base ; rebrancher les 5 fichiers de l'application Flutter qui appellent l'API.
 - **Avantages** : un seul langage avec le moteur, une seule base, une seule CI, un seul service à déployer ; aucun appel réseau ni copie d'état entre l'API et le moteur ; conforme au dossier de conception (FastAPI, PostgreSQL).
 - **Risques** : le portage de l'authentification doit être terminé et testé à temps ; l'application Flutter doit suivre les nouvelles routes.
 
 ### B. Une seule API, en Node
 
-- **À faire** : porter en TypeScript les fonctionnalités de Wilfried (préférences, prix, paiement, console, scénarios : environ 1 650 lignes, plus 560 lignes de tests) ; appeler le moteur par le service agents (PR #20), qui reste un second serveur.
+- **À faire** : porter en TypeScript les fonctionnalités de Wilfried (préférences, prix, paiement, console, scénarios : environ 1 650 lignes, plus 560 lignes de tests) ; appeler le moteur par le service agents (PR #34), qui reste un second serveur.
 - **Avantages** : l'authentification et l'application Flutter ne bougent pas.
 - **Risques** : le plus gros volume à réécrire avant la soutenance ; deux programmes à déployer de toute façon (API Node et service agents) ; écart avec le dossier de conception à justifier.
 
 ### C. Deux API, un seul moteur — compromis lié au délai
 
-On garde les deux API avec des rôles séparés, et les deux passent par le service agents (PR #20) pour former les équipages.
+On garde les deux API avec des rôles séparés, et les deux passent par le service agents (PR #34) pour former les équipages.
 
 - **À faire** : `agents.engine.ts` appelle `POST /negotiations` au lieu de regrouper lui-même ; la sélection des offres et l'annulation de l'API FastAPI appellent le service ; déployer trois services (API Node, API FastAPI, service agents).
 - **Avantages** : le moins de code à réécrire ; chacun garde son travail.
@@ -60,15 +60,22 @@ On garde les deux API avec des rôles séparés, et les deux passent par le serv
 
 | | Option A | Option B | Option C |
 |---|---|---|---|
-| Karl | intégrer le moteur dans l'API (routes de la PR #20), brancher prix, offres et annulation sur le moteur | maintenir le service agents (PR #20), aider au branchement Node | maintenir le service agents (PR #20), aider les deux branchements |
+| Karl | intégrer le moteur dans l'API (routes de la PR #34), brancher prix, offres et annulation sur le moteur | maintenir le service agents (PR #34), aider au branchement Node | maintenir le service agents (PR #34), aider les deux branchements |
 | Cindy | porter l'authentification (US01) et OSRM en Python, rebrancher l'application Flutter | brancher `agents.engine.ts` sur le service agents | brancher `agents.engine.ts` sur le service agents |
 | Wilfried | schéma de base unique, remplacer l'en-tête d'identification par le jeton de session | porter préférences, prix, paiement et console en TypeScript | faire appeler le service agents par les offres et l'annulation |
 | Valerdy | déployer une API et PostgreSQL (SR-22) | déployer l'API Node, le service agents et PostgreSQL | déployer trois services et deux bases |
 
 ## Décision
 
-*À compléter une fois le choix fait : option retenue, date, membres présents, et éventuels ajustements de la répartition. Le dossier de conception (section « Choix technologiques ») sera mis à jour en conséquence.*
+- **Option retenue : C.** On garde les deux backends, l'API Node (Cindy) et l'API Python FastAPI (Wilfried), avec des rôles séparés.
+- **Date** : 16 novembre 2026, décision du groupe.
+- **Condition posée par le groupe** : les deux API doivent communiquer entre elles.
 
-- Option retenue :
-- Date :
-- Ajustements :
+**Ce que cela implique** (repris de l'option C, à confirmer par les personnes concernées) :
+
+- la formation des équipages, les offres, le mode manuel, l'annulation et la réaffectation passent par le service agents (PR #34), appelé par les deux API ;
+- les deux API doivent reconnaître les mêmes utilisateurs. Piste proposée : l'API FastAPI vérifie les jetons de session émis par l'API Node (même clé secrète), au lieu de l'en-tête d'identification actuel ;
+- un trajet, une demande ou un équipage créé d'un côté doit être visible de l'autre : soit une base partagée, soit des appels entre les deux API, à choisir ;
+- trois services à déployer pour la démonstration : API Node, API FastAPI, service agents (SR-22).
+
+**Points encore à préciser** : le mode de partage des données (base commune ou appels HTTP entre API) et la date à laquelle chaque branchement doit être prêt. Le dossier de conception (section « Choix technologiques ») sera mis à jour : Node, FastAPI, service agents et Flutter.
