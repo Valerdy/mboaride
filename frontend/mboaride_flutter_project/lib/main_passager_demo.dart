@@ -4,6 +4,8 @@ import 'core/app_config.dart';
 import 'core/api_client.dart';
 import 'core/auth_session.dart';
 import 'core/mboa_theme.dart';
+import 'features/children/data/children_repository.dart';
+import 'features/intercity/data/intercity_repository.dart';
 import 'features/offers/data/offers_repository.dart';
 import 'features/offers/presentation/my_requests_screen.dart';
 import 'features/preferences/data/preferences_repository.dart';
@@ -30,10 +32,16 @@ class _PassengerDemoApp extends StatelessWidget {
       home: MyRequestsScreen(
         offers: AppConfig.useFakeApi
             ? FakeOffersRepository()
-            : ApiOffersRepository(client),
+            : ApiOffersRepository(client: client),
         preferences: AppConfig.useFakeApi
             ? FakePreferencesRepository()
-            : ApiPreferencesRepository(client),
+            : ApiPreferencesRepository(client: client),
+        childrenRepository: AppConfig.useFakeApi
+            ? FakeChildrenRepository()
+            : ApiChildrenRepository(client: client),
+        intercityRepository: AppConfig.useFakeApi
+            ? FakeIntercityRepository()
+            : ApiIntercityRepository(client: client),
       ),
     );
   }

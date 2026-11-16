@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../core/api_client.dart';
 import '../../../core/mboa_theme.dart';
+import '../../children/data/children_repository.dart';
+import '../../children/presentation/children_screen.dart';
+import '../../intercity/data/intercity_repository.dart';
+import '../../intercity/presentation/intercity_screen.dart';
 import '../../preferences/data/preferences_repository.dart';
 import '../../preferences/presentation/preferences_screen.dart';
 import '../data/offers_repository.dart';
@@ -15,10 +19,17 @@ class MyRequestsScreen extends StatefulWidget {
     super.key,
     required this.offers,
     required this.preferences,
+    this.childrenRepository,
+    this.intercityRepository,
   });
 
   final OffersRepository offers;
   final PreferencesRepository preferences;
+
+  /// Parcours parent (US17, US19) et voyages interurbains (US22). Quand ils
+  /// sont absents, les raccourcis correspondants ne s'affichent pas.
+  final ChildrenRepository? childrenRepository;
+  final IntercityRepository? intercityRepository;
 
   @override
   State<MyRequestsScreen> createState() => _MyRequestsScreenState();
@@ -73,6 +84,26 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
     }
   }
 
+  void _openChildren() {
+    final repository = widget.childrenRepository;
+    if (repository == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChildrenScreen(repository: repository),
+      ),
+    );
+  }
+
+  void _openIntercity() {
+    final repository = widget.intercityRepository;
+    if (repository == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => IntercityScreen(repository: repository),
+      ),
+    );
+  }
+
   void _openPreferences() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -100,6 +131,33 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 32),
               children: [
+                if (widget.childrenRepository != null ||
+                    widget.intercityRepository != null) ...[
+                  Row(
+                    children: [
+                      if (widget.intercityRepository != null)
+                        Expanded(
+                          child: _Shortcut(
+                            icon: Icons.airport_shuttle,
+                            label: 'Voyage interurbain',
+                            onTap: _openIntercity,
+                          ),
+                        ),
+                      if (widget.intercityRepository != null &&
+                          widget.childrenRepository != null)
+                        const SizedBox(width: 12),
+                      if (widget.childrenRepository != null)
+                        Expanded(
+                          child: _Shortcut(
+                            icon: Icons.family_restroom,
+                            label: 'Mes enfants',
+                            onTap: _openChildren,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                ],
                 if (_error != null) ...[
                   Text(
                     _error!,
@@ -151,6 +209,47 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                 ),
               ],
             ),
+    ),
+  );
+}
+
+class _Shortcut extends StatelessWidget {
+  const _Shortcut({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    borderRadius: BorderRadius.circular(14),
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFDCE3DE)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: MboaColors.green),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: MboaColors.night,
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }
