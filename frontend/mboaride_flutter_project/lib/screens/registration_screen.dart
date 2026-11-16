@@ -22,7 +22,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   bool _isPhoneSelected = false;
   bool _positionAccepted = false;
   bool _isLoading = false;
-  bool _otpSent = false;
   String? _detectedCompany;
   String? _savedToken; // Stocke le token si renvoyé dès l'étape register
 
@@ -69,7 +68,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         _savedToken = body['token'] ?? body['access_token'];
       }
 
-      setState(() => _otpSent = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Code OTP envoyé !')),
       );
