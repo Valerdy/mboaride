@@ -29,6 +29,9 @@ class ApiClient {
 
   final http.Client _client;
   final String _baseUrl;
+
+  /// Racine de l'API, utile pour construire un lien à ouvrir (export CSV).
+  String get baseUrl => _baseUrl;
   static const Duration _timeout = Duration(seconds: 10);
 
   Map<String, String> _headers() {
