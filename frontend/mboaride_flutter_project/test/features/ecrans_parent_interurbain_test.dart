@@ -13,13 +13,11 @@ Widget _app(Widget home) => MaterialApp(theme: buildMboaTheme(), home: home);
 void main() {
   test('un compte élève est refusé en dessous de 12 ans (US17)', () {
     expect(
-      Child.validate(name: 'Yves Mbarga', ageText: '10', school: 'Saint-Michel'),
-      contains('12 ans'),
+      Child.validate(firstName: 'Marc', ageText: '10'),
+      contains('12 à 17 ans'),
     );
-    expect(
-      Child.validate(name: 'Yves Mbarga', ageText: '12', school: 'Saint-Michel'),
-      isNull,
-    );
+    expect(Child.validate(firstName: 'Marc', ageText: '18'), contains('17'));
+    expect(Child.validate(firstName: 'Marc', ageText: '12'), isNull);
   });
 
   testWidgets('le parent voit ses élèves et peut retirer l\'autorisation', (
@@ -28,12 +26,13 @@ void main() {
     final repository = FakeChildrenRepository();
     await tester.pumpWidget(_app(ChildrenScreen(repository: repository)));
     await tester.pumpAndSettle();
-    expect(find.text('Ariane Mbarga'), findsOneWidget);
+    expect(find.text('Ange'), findsOneWidget);
     expect(find.textContaining('Trajets autorisés'), findsOneWidget);
 
     await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
     expect(find.textContaining('Trajets suspendus'), findsNWidgets(2));
+    // le second élève est déjà suspendu dans le jeu simulé
   });
 
   testWidgets('le journal montre le départ et l\'arrivée (US19)', (
@@ -45,17 +44,17 @@ void main() {
           repository: FakeChildrenRepository(),
           child: const Child(
             id: 1,
-            name: 'Ariane Mbarga',
-            age: 14,
-            school: 'Collège Saint-Michel, Bonabéri',
+            firstName: 'Ange',
+            age: 12,
+            school: 'Collège B (Bonapriso)',
             authorized: true,
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('Montée à bord'), findsOneWidget);
-    expect(find.textContaining('Déposée au collège'), findsOneWidget);
+    expect(find.textContaining('est montée à bord à Makepe'), findsOneWidget);
+    expect(find.textContaining('est arrivée à Bonapriso'), findsOneWidget);
   });
 
   testWidgets('une place interurbaine se réserve à l\'avance (US22)', (

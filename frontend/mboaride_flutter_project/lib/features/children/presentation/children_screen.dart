@@ -9,9 +9,13 @@ import 'child_journal_screen.dart';
 /// US17 · Créer un compte élève pour mes enfants de 12 ans et plus et
 /// autoriser leurs trajets, pour garder le contrôle de qui les transporte.
 class ChildrenScreen extends StatefulWidget {
-  const ChildrenScreen({super.key, required this.repository});
+  const ChildrenScreen({super.key, required this.repository, this.schoolId});
 
   final ChildrenRepository repository;
+
+  /// Établissement rattaché par défaut aux nouveaux comptes élèves, quand il
+  /// est connu (école partenaire de MboaRide).
+  final int? schoolId;
 
   @override
   State<ChildrenScreen> createState() => _ChildrenScreenState();
@@ -65,7 +69,7 @@ class _ChildrenScreenState extends State<ChildrenScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Autorisation retirée : ${child.name} ne peut plus réserver.',
+              'Autorisation retirée : ${child.firstName} ne peut plus réserver.',
             ),
           ),
         );
@@ -82,7 +86,10 @@ class _ChildrenScreenState extends State<ChildrenScreen> {
     final created = await showModalBottomSheet<Child>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _AddChildSheet(repository: widget.repository),
+      builder: (_) => _AddChildSheet(
+        repository: widget.repository,
+        schoolId: widget.schoolId,
+      ),
     );
     if (created != null && mounted) {
       setState(() => _children = [..._children, created]);
@@ -184,7 +191,7 @@ class _ChildCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    child.name,
+                    child.firstName,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
@@ -193,7 +200,7 @@ class _ChildCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${child.age} ans · ${child.school}',
+                    '${child.age} ans · ${child.schoolLabel}',
                     style: const TextStyle(
                       fontSize: 13,
                       color: MboaColors.mutedText,
@@ -239,34 +246,34 @@ class _ChildCard extends StatelessWidget {
 }
 
 class _AddChildSheet extends StatefulWidget {
-  const _AddChildSheet({required this.repository});
+  const _AddChildSheet({required this.repository, this.schoolId});
 
   final ChildrenRepository repository;
+
+  /// Établissement rattaché au compte, quand le parent en a choisi un.
+  final int? schoolId;
 
   @override
   State<_AddChildSheet> createState() => _AddChildSheetState();
 }
 
 class _AddChildSheetState extends State<_AddChildSheet> {
-  final _name = TextEditingController();
+  final _firstName = TextEditingController();
   final _age = TextEditingController();
-  final _school = TextEditingController();
   bool _saving = false;
   String? _error;
 
   @override
   void dispose() {
-    _name.dispose();
+    _firstName.dispose();
     _age.dispose();
-    _school.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     final problem = Child.validate(
-      name: _name.text,
+      firstName: _firstName.text,
       ageText: _age.text,
-      school: _school.text,
     );
     if (problem != null) {
       setState(() => _error = problem);
@@ -278,9 +285,9 @@ class _AddChildSheetState extends State<_AddChildSheet> {
     });
     try {
       final child = await widget.repository.addChild(
-        name: _name.text.trim(),
+        firstName: _firstName.text.trim(),
         age: int.parse(_age.text.trim()),
-        school: _school.text.trim(),
+        schoolId: widget.schoolId,
       );
       if (!mounted) return;
       Navigator.of(context).pop(child);
@@ -315,10 +322,11 @@ class _AddChildSheetState extends State<_AddChildSheet> {
         ),
         const SizedBox(height: 14),
         TextField(
-          controller: _name,
+          controller: _firstName,
           textCapitalization: TextCapitalization.words,
           decoration: const InputDecoration(
-            labelText: 'Nom et prénom de l\'élève',
+            labelText: 'Prénom de l\'élève',
+            helperText: 'MboaRide n\'enregistre que le prénom et l\'âge déclaré',
           ),
         ),
         const SizedBox(height: 12),
@@ -327,13 +335,8 @@ class _AddChildSheetState extends State<_AddChildSheet> {
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
             labelText: 'Âge',
-            helperText: 'À partir de 12 ans',
+            helperText: 'De 12 à 17 ans',
           ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _school,
-          decoration: const InputDecoration(labelText: 'Établissement'),
         ),
         if (_error != null)
           Padding(
