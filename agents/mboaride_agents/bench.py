@@ -1,6 +1,6 @@
 """Banc de mesure : les quatre critères de la grille, par scénario (SR-28).
 
-    python -m mboaride_agents.bench                  # S1, S3 et S5, 10 exécutions chacun
+    python -m mboaride_agents.bench                  # S1 à S5, 10 exécutions chacun
     python -m mboaride_agents.bench S1 --runs 10 --json
 
 Pour chaque scénario, le banc rejoue `runs` exécutions complètes et mesure :

@@ -371,9 +371,13 @@ Résultats actuels (graine 42, 10 exécutions par scénario, toutes les cibles a
 
 | Scénario | Équipages | Convergence (médiane) | Messages par équipage | Tours par équipage | Empreintes distinctes | Mémoire 1re / 10e |
 |---|---|---|---|---|---|---|
-| S1 matin en entreprise | 30 / 50 | 26 ms | 16,5 (max 21) | 1,00 | 1 | 897 / 865 Kio |
-| S3 annulations | 27 / 50, 4 annulés | 23 ms (réaffectation ≤ 4 ms) | 16,4 (max 21) | 1,00 | 1 | 917 / 916 Kio |
-| S5 mode manuel | 29 / 50 | 21 ms | 16,7 (max 33) | 1,03 | 1 | 878 / 876 Kio |
+| S1 matin en entreprise | 30 / 50 | 34 ms | 16,5 (max 21) | 1,00 | 1 | 905 / 864 Kio |
+| S2 ville mixte (80 conducteurs, 200 passagers) | 137 / 200 | 241 ms | 17,4 (max 41) | 1,23 | 1 | 3 659 / 3 639 Kio |
+| S3 annulations | 27 / 50, 4 annulés | 49 ms (réaffectation ≤ 5 ms) | 16,4 (max 21) | 1,00 | 1 | 919 / 917 Kio |
+| S4 Douala-Yaoundé | 8 / 30 | 13 ms | 14,0 (max 17) | 1,00 | 1 | 338 / 335 Kio |
+| S5 mode manuel | 29 / 50 | 43 ms | 16,7 (max 33) | 1,03 | 1 | 877 / 877 Kio |
+
+Les temps varient d'une machine à l'autre ; la cible de 2 secondes est tenue avec une large marge, y compris sur S2, le cas le plus chargé. Dans S2, 11 élèves sur 30 trouvent un équipage ; les trois refus attendus apparaissent (deux élèves de moins de 12 ans, un sans autorisation parentale). Dans S4, le prix est le premier motif de refus : avec les règles du dossier (8 L/100 km, diviseur = conducteur + places offertes, péage de 1 000 FCFA, commission de 10 %), une place Douala-Yaoundé revient à 4 145 FCFA en moyenne (3 651 à 4 700), au-dessus du car à 3 500 FCFA. Les trajets interurbains sont estimés avec un facteur routier de 1,2 (environ 200 km à vol d'oiseau pour 240 km de route) au lieu de 1,3 en ville.
 
 Dans S3, les passagers des conducteurs annulés relancent bien leur demande, mais à 6 h 30 il reste peu de conducteurs compatibles : un passager est réaffecté puis perd aussi son second conducteur (tiré au sort parmi les annulations), les autres reçoivent `NO_CREW` avec la suggestion d'élargir leur fenêtre. Le déterminisme est aussi vérifié dans des processus Python séparés avec des graines de hachage différentes (`tests/test_determinism.py`).
 
@@ -389,7 +393,7 @@ Les motifs de refus (`DECLINE.reason`, `NO_CREW.reason`) alimentent aussi le bil
 | `driver.py` | agent conducteur : offre ou refus, puis réservation ou `SEAT_TAKEN` à l'acceptation |
 | `passenger.py` | agent passager : classement des offres, modes autonome et manuel |
 | `engine.py` | moteur : inscription des agents, soumission des demandes, actions de l'utilisateur en mode manuel, annulation d'un trajet, mesures |
-| `scenarios.py` | scénarios simulés à graine fixe : S1 (matin en entreprise), S3 (annulations), S5 (mode manuel) |
+| `scenarios.py` | scénarios simulés à graine fixe : S1 (matin en entreprise), S2 (ville mixte), S3 (annulations), S4 (interurbain), S5 (mode manuel) |
 | `bench.py` | banc de mesure : convergence, messages, déterminisme et mémoire par scénario, en texte ou en JSON |
 
 Les mesures actuelles sont données en section 7.

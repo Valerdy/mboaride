@@ -25,7 +25,7 @@ from .routing import EstimatedRouting, Point, haversine_m
 
 DEFAULT_CFP_FANOUT = 5
 # Estimateurs locaux (sans OSRM) pour la présélection : vitesse moyenne selon le type de trajet.
-DEFAULT_ESTIMATORS = {"URBAN": EstimatedRouting(speed_kmh=20), "INTERURBAN": EstimatedRouting(speed_kmh=60)}
+DEFAULT_ESTIMATORS = {"URBAN": EstimatedRouting(speed_kmh=20), "INTERURBAN": EstimatedRouting(speed_kmh=60, road_factor=1.2)}
 # Marge sur l'heure de dépose estimée : l'estimation diffère de l'itinéraire réel (OSRM).
 DEFAULT_TIME_TOLERANCE = timedelta(minutes=15)
 

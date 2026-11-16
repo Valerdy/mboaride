@@ -2,8 +2,13 @@
 
 S1 : matin en entreprise. Une entreprise de Bonanjo, 20 conducteurs et 50 passagers
     qui habitent les quartiers de Douala, arrivées entre 7 h et 8 h, mode autonome.
+S2 : ville mixte. 80 conducteurs et 200 passagers : 3 entreprises (A et B partenaires),
+    1 collège (élèves de 11 à 17 ans, dont deux de moins de 12 ans et un sans
+    autorisation parentale) et le réseau public. Montée en charge et cercles.
 S3 : annulations. S1, puis 3 conducteurs qui ont des passagers annulent leur trajet
     (6 h 30, 6 h 35, 6 h 40) ; leurs passagers sont réaffectés automatiquement (US07).
+S4 : voyage interurbain. 10 conducteurs et 30 passagers de Douala vers Yaoundé, le vendredi
+    après-midi, réservés à l'avance, péage compris, réseau public.
 S5 : mode manuel. S1 où chaque passager reçoit au plus trois propositions et en choisit
     une ; le choix humain est simulé de façon déterministe (US05).
 Données entièrement simulées : aucune donnée personnelle réelle.
@@ -19,7 +24,7 @@ from .driver import DriverAgent, DriverProfile, DriverTrip
 from .engine import Engine
 from .pricing import PricingPolicy
 from .organization import OrganizationAgent
-from .passenger import ArrivalWindow, PassengerRequest
+from .passenger import ArrivalWindow, PassengerRequest, Student
 from .routing import EstimatedRouting, Point
 
 # Centres approximatifs des quartiers (simulation).
@@ -29,6 +34,10 @@ QUARTERS = {
     "Bepanda": Point(4.0600, 9.7200), "Deido": Point(4.0580, 9.7050), "Bonaberi": Point(4.0700, 9.6600),
 }
 BONANJO = Point(4.0440, 9.6935)
+AKWA = Point(4.0510, 9.7000)
+BONAPRISO = Point(4.0320, 9.6985)
+BONABERI_ZI = Point(4.0780, 9.6650)
+YAOUNDE = Point(3.8480, 11.5021)
 COMFORTS = ("AIR_CONDITIONING", "NON_SMOKING", "QUIET")
 TZ = datetime.fromisoformat("2026-11-10T00:00:00+01:00").tzinfo
 
@@ -151,4 +160,112 @@ def s5_manual(seed: int = 42) -> Scenario:
     return dataclasses.replace(scenario, name="S5", requests=requests, manual_choices=True)
 
 
-SCENARIOS = {"S1": s1_company_morning, "S3": s3_cancellations, "S5": s5_manual}
+def _commuter(rng: random.Random, routing: EstimatedRouting, driver_id: str, destination: Point, arrival: datetime,
+              *, trip_kind: str = "URBAN", tolls: int = 0, **profile) -> DriverProfile:
+    """Conducteur qui part de chez lui (un quartier de Douala) pour arriver vers `arrival`."""
+    home = _near(rng, QUARTERS[rng.choice(sorted(QUARTERS))], 0.006)
+    _, direct_s = routing.leg(home, destination)
+    departure = (arrival - timedelta(seconds=direct_s + rng.randrange(0, 301))).replace(second=0)
+    defaults = dict(seats_total=rng.randint(2, 4), max_detour_m=rng.choice((2000, 2500, 3000, 3500, 4000)),
+                    comfort=frozenset(c for c in COMFORTS if rng.random() < 0.5))
+    trip = DriverTrip(f"t-{driver_id}", origin=home, destination=destination, departure_time=departure,
+                      trip_kind=trip_kind, tolls=tolls)
+    return DriverProfile(driver_id=driver_id, trip=trip, **{**defaults, **profile})
+
+
+def s2_city_mix(seed: int = 42) -> Scenario:
+    rng = random.Random(seed)
+    routing = EstimatedRouting()
+    day = datetime(2026, 11, 10, tzinfo=TZ)
+    companies = {"entreprise-a": BONANJO, "entreprise-b": AKWA, "entreprise-c": BONABERI_ZI}
+    partners = {"entreprise-a": ["organization:entreprise-b"], "entreprise-b": ["organization:entreprise-a"],
+                "entreprise-c": []}
+    districts = (BONANJO, AKWA, BONAPRISO)
+    all_circles = frozenset({"ORGANIZATION", "PARTNERS", "PUBLIC"})
+
+    drivers: list[DriverProfile] = []
+
+    def add_driver(destination: Point, arrival_from: int, arrival_to: int, **profile) -> None:
+        driver_id = f"d{len(drivers) + 1:02d}"
+        arrival = _at(day, arrival_from + rng.randrange(0, arrival_to - arrival_from + 1))
+        drivers.append(_commuter(rng, routing, driver_id, _near(rng, destination, 0.002), arrival, **profile))
+
+    for org, office in companies.items():   # 20 + 20 + 15 salariés conducteurs
+        for _ in range(15 if org == "entreprise-c" else 20):
+            add_driver(office, 7 * 60 + 5, 7 * 60 + 55, organization_id=f"organization:{org}",
+                       accepted_circles=all_circles, accepts_students=rng.random() < 0.4)
+    for _ in range(5):                      # parents et enseignants qui vont au collège
+        add_driver(BONAPRISO, 6 * 60 + 55, 7 * 60 + 20, organization_id="organization:college-bonapriso",
+                   accepted_circles=frozenset({"ORGANIZATION", "PUBLIC"}), accepts_students=True)
+    for _ in range(20):                     # réseau public : conducteurs agréés sans organisation
+        add_driver(rng.choice(districts), 7 * 60 + 5, 7 * 60 + 55, accepted_circles=frozenset({"PUBLIC"}),
+                   accepts_students=rng.random() < 0.3)
+
+    requests: list[tuple[PassengerRequest, datetime]] = []
+    members: dict[str, list[str]] = {org: [] for org in [*companies, "college-bonapriso"]}
+
+    def add_request(destination: Point, target_from: int, target_to: int, organization: str | None,
+                    circles: tuple[str, ...], max_prices: tuple[int, ...], passenger_id: str | None = None,
+                    **request) -> None:
+        passenger_id = passenger_id or f"p{len(requests) + 1:03d}"
+        if organization:
+            members[organization].append(f"passenger:{passenger_id}")
+        target = _at(day, target_from + rng.randrange(0, target_to - target_from + 1, 5))
+        requests.append((PassengerRequest(
+            passenger_id=passenger_id,
+            origin=_near(rng, QUARTERS[rng.choice(sorted(QUARTERS))], 0.006),
+            destination=_near(rng, destination, 0.002),
+            arrival_window=ArrivalWindow(target - timedelta(minutes=10), target, target + timedelta(minutes=10)),
+            max_price=rng.choice(max_prices),
+            circles=circles,
+            organization_id=f"organization:{organization}" if organization else None,
+            comfort_required=frozenset({"NON_SMOKING"}) if rng.random() < 0.1 else frozenset(),
+            comfort_preferred=frozenset(c for c in COMFORTS if rng.random() < 0.3),
+            **request,
+        ), _at(day, 6 * 60 + rng.randrange(0, 31))))
+
+    for org, office in companies.items():   # 45 + 45 + 30 salariés passagers
+        for _ in range(30 if org == "entreprise-c" else 45):
+            add_request(office, 7 * 60, 8 * 60, org, ("ORGANIZATION", "PARTNERS", "PUBLIC"), (200, 250, 300, 350, 400))
+    for i in range(30):                     # élèves : deux de moins de 12 ans, un sans autorisation parentale
+        age = 11 if i < 2 else rng.randint(12, 17)
+        add_request(BONAPRISO, 6 * 60 + 50, 7 * 60 + 20, "college-bonapriso", ("ORGANIZATION", "PUBLIC"),
+                    (200, 250, 300), passenger_id=f"e{i + 1:03d}", passenger_kind="STUDENT",
+                    student=Student(age=age, parent_consent=i != 2))
+    for _ in range(50):                     # réseau public
+        add_request(rng.choice(districts), 7 * 60, 8 * 60, None, ("PUBLIC",), (250, 300, 350, 400, 500))
+
+    organizations = [OrganizationAgent(org, members=members[org], partners=partners[org]) for org in companies]
+    organizations.append(OrganizationAgent("college-bonapriso", members=members["college-bonapriso"], price_cap=250))
+    return Scenario(name="S2", organizations=organizations, drivers=drivers, requests=requests, routing=routing)
+
+
+def s4_interurban(seed: int = 42) -> Scenario:
+    rng = random.Random(seed)
+    # Douala-Yaoundé : environ 200 km à vol d'oiseau pour 240 km de route, d'où un facteur 1,2.
+    routing = EstimatedRouting(speed_kmh=60, road_factor=1.2)
+    friday = datetime(2026, 11, 13, tzinfo=TZ)
+    drivers = [
+        _commuter(rng, routing, f"d{i:02d}", _near(rng, YAOUNDE, 0.01), _at(friday, 17 * 60 + rng.randrange(0, 181, 15)),
+                  trip_kind="INTERURBAN", tolls=1000, max_detour_m=rng.choice((5000, 6000, 8000)),
+                  accepted_circles=frozenset({"PUBLIC"}))
+        for i in range(1, 11)
+    ]
+    requests = []
+    for i in range(1, 31):
+        target = _at(friday, 17 * 60 + rng.randrange(0, 181, 30))
+        requests.append((PassengerRequest(
+            passenger_id=f"v{i:03d}",
+            origin=_near(rng, QUARTERS[rng.choice(sorted(QUARTERS))], 0.006),
+            destination=_near(rng, YAOUNDE, 0.01),
+            arrival_window=ArrivalWindow(target - timedelta(minutes=45), target, target + timedelta(minutes=45)),
+            max_price=rng.choice((3500, 4000, 4500, 5000, 6000)),
+            circles=("PUBLIC",),
+            trip_kind="INTERURBAN",
+            comfort_preferred=frozenset(c for c in COMFORTS if rng.random() < 0.3),
+        ), _at(datetime(2026, 11, 11, tzinfo=TZ), 18 * 60 + rng.randrange(0, 24 * 60))))
+    return Scenario(name="S4", drivers=drivers, requests=requests, routing=routing)
+
+
+SCENARIOS = {"S1": s1_company_morning, "S2": s2_city_mix, "S3": s3_cancellations, "S4": s4_interurban,
+             "S5": s5_manual}
