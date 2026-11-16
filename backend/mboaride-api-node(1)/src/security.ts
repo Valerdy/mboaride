@@ -2,6 +2,7 @@ import { hash, verify } from "@node-rs/argon2";
 import { createHmac, randomBytes, randomInt } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { config } from "./config.js";
+import { z } from 'zod';
 
 export const hashPassword = (password: string) => hash(password); // Argon2id par défaut
 
@@ -12,7 +13,21 @@ export async function verifyPassword(passwordHash: string, password: string): Pr
     return false;
   }
 }
-
+export const CreateRideRequestSchema = z.object({
+  origin: z.string().nonempty("Le point de départ est requis"), // ou objets { lat, lng }
+  destination: z.string().nonempty("La destination est requise"),
+  windowStart: z.string().datetime(), // Ex: 2026-11-11T07:30:00Z
+  windowEnd: z.string().datetime(),   // Ex: 2026-11-11T08:00:00Z
+  maxPrice: z.number().positive(),    // Ex: 500
+  currency: z.string().default("XAF"),
+  preferences: z.object({
+    airConditioning: z.boolean().default(false),
+    silence: z.boolean().default(false),
+  }).optional(),
+}).refine(data => new Date(data.windowEnd) > new Date(data.windowStart), {
+  message: "L'heure de fin doit être supérieure à l'heure de début",
+  path: ["windowEnd"],
+});
 /** Empreinte HMAC : on ne stocke jamais un code ou un jeton en clair. */
 export const digest = (value: string) => createHmac("sha256", config.secretKey).update(value).digest("hex");
 

@@ -62,4 +62,39 @@ export async function migrate(db: Knex): Promise<void> {
       t.boolean("revoked").notNullable().defaultTo(false);
     });
   }
+  // À ajouter dans votre fonction initDb(db: Knex) dans src/db.ts
+  if (!(await db.schema.hasTable('crews'))) {
+    await db.schema.createTable('crews', (table) => {
+      table.uuid('id').primary();
+      table.string('driver_id').nullable(); // null si équipage en cours de constitution
+      table.string('status').notNullable().defaultTo('forming'); // forming | matched | en_route | completed | cancelled
+      table.integer('capacity').notNullable().defaultTo(4);
+      table.float('origin_lat').notNullable();
+      table.float('origin_lng').notNullable();
+      table.float('dest_lat').notNullable();
+      table.float('dest_lng').notNullable();
+      table.timestamp('departure_target').notNullable();
+      table.timestamps(true, true);
+    });
+  }
+
+  if (!(await db.schema.hasTable('ride_requests'))) {
+    await db.schema.createTable('ride_requests', (table) => {
+      table.uuid('id').primary();
+      table.string('user_id').notNullable();
+      table.uuid('crew_id').nullable().references('id').inTable('crews').onDelete('SET NULL');
+      table.string('pickup_name').notNullable();
+      table.float('pickup_lat').notNullable();
+      table.float('pickup_lng').notNullable();
+      table.string('dropoff_name').notNullable();
+      table.float('dropoff_lat').notNullable();
+      table.float('dropoff_lng').notNullable();
+      table.timestamp('window_start').notNullable();
+      table.timestamp('window_end').notNullable();
+      table.integer('max_price_fcfa').notNullable();
+      table.jsonb('comforts').notNullable().defaultTo('[]');
+      table.string('status').notNullable().defaultTo('searching'); // searching | matched | confirmed | cancelled
+      table.timestamps(true, true);
+    });
+  }
 }
