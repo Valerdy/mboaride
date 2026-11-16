@@ -13,19 +13,24 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import RACINE
 from .db import get_conn
-from .routes import annulation, demo, organisation, paiement, preferences, prix
+from .routes import (annulation, banc, demo, eleves, organisation, paiement, preferences,
+                     prix, voyages)
 from .securite import utilisateur_courant
 
 app = FastAPI(title="MboaRide", version="0.3.0",
               description="Préférences (US02), prix avant confirmation (US09), paiement Mobile Money "
                           "simulé (US10), invitations et adoption (US13), économies et CO2 (US14), "
-                          "annulation et réaffectation, scénarios de démonstration.")
+                          "annulation et réaffectation, comptes élèves (US17, US19), voyages interurbains "
+                          "(US22), banc de mesure du moteur (US15), scénarios de démonstration.")
 app.include_router(preferences.router)
 app.include_router(prix.router)
 app.include_router(paiement.router)
 app.include_router(annulation.router)
 app.include_router(organisation.router)
 app.include_router(demo.router)
+app.include_router(eleves.router)
+app.include_router(voyages.router)
+app.include_router(banc.router)
 
 WEB = RACINE / "web"
 

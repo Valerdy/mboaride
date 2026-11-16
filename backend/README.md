@@ -12,6 +12,9 @@ et de `mboaride_agents.routing.EstimatedRouting`, via le pont `app/moteur.py`. L
 | SR-40 | US13 Inviter les employés et suivre l'adoption | `app/routes/organisation.py` |
 | SR-41 | US14 Économies et CO2 évité | `app/routes/organisation.py` |
 | SR-47 | Scénarios de démo, annulation et réaffectation | `app/routes/annulation.py`, `app/routes/demo.py` |
+| US17 US19 | Comptes élèves, autorisation parentale, notifications au parent | `app/routes/eleves.py`, `sql/06_sprint3_eleves.sql` |
+| US22 | Place dans un voyage interurbain, réservée à l'avance | `app/routes/voyages.py` |
+| US15 | Banc de mesure du moteur exposé à l'écran de démonstration | `app/routes/banc.py` |
 
 ## Démarrage
 
