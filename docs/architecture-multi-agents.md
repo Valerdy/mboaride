@@ -163,13 +163,17 @@ Exemple tiré de [`examples.json`](../agents/schemas/examples.json), pour Grâce
 
 Le conducteur calcule le prix et en détaille le calcul dans `price_breakdown`, ce qui permet de changer la règle sans changer le format :
 
-- `fuel_cost` = distance partagée (km) × consommation (L/km) × prix du litre (840 FCFA), arrondi ;
+- `fuel_cost` = distance de base (km) × consommation (L/km) × prix du litre (840 FCFA), arrondi. La distance de base dépend de la règle : le tronçon parcouru avec le passager, ce tronçon plus le détour que ce passager impose, ou le trajet entier du conducteur ;
 - `tolls` = péages (trajets interurbains) ;
-- `divisor` = nombre de parts : occupants selon le dossier de conception, places offertes dans la version mesurée par le bilan durable. **C'est le point ouvert du bilan (le conducteur ne couvre que 39 % de ses frais)** ; le format accepte les deux règles ;
+- `divisor` = nombre de parts : toutes les places offertes, ou seulement les occupants à bord (conducteur compris) ;
 - `commission` = 10 % de la part, en réseau public et en interurbain, 0 sinon ;
 - `price` = max(arrondi((`fuel_cost` + `tolls`) / `divisor`), prix plancher du conducteur) + `commission`.
 
-Implémentation : `agents/mboaride_agents/pricing.py`. Les calculs se font en fractions exactes, arrondies au FCFA, demi vers le haut. La règle du diviseur se choisit avec `PricingPolicy(divisor_rule=...)` : `OFFERED_SEATS` (conducteur + places offertes, par défaut) ou `OCCUPANTS` (conducteur + passagers à bord).
+Implémentation : `agents/mboaride_agents/pricing.py`. Les calculs se font en fractions exactes, arrondies au FCFA, demi vers le haut. La règle se choisit avec deux réglages de `PricingPolicy` : `cost_basis` (`SHARED_LEG`, `SHARED_LEG_PLUS_DETOUR`, `WHOLE_TRIP`) et `divisor_rule` (`OFFERED_SEATS`, `OCCUPANTS`).
+
+**Règle du produit** (`PRODUCT_POLICY`, retenue dans le bilan durable SR-51) : le tronçon commun plus le détour imposé, partagé entre les occupants à bord (`SHARED_LEG_PLUS_DETOUR` + `OCCUPANTS`). Mesurée sur S1 avec `agents/scripts/comparer_regles_prix.py`, elle porte la couverture des frais du conducteur de 48 % à 66 %, pour un prix moyen de 249 FCFA, soit 42 % d'un taxi. Le premier passager d'une voiture vide paie davantage (il partage avec le seul conducteur) ; le prix baisse à mesure que la voiture se remplit. Le service agents et l'API FastAPI importent tous les deux `PRODUCT_POLICY` : ils annoncent le même prix pour le même trajet.
+
+Le défaut de `PricingPolicy()` reste l'ancienne règle (`SHARED_LEG` + `OFFERED_SEATS`), celle des exemples du protocole (`schemas/examples.json`) et des scénarios du banc de mesure.
 
 ## 5. Variantes et imprévus
 
@@ -430,7 +434,8 @@ Fonctionnement :
 - **Un seul moteur en mémoire, un verrou** : les appels sont traités un par un, dans l'ordre d'arrivée, ce qui garde le déterminisme.
 - **La base de l'API fait foi** : au démarrage du service (ou après `POST /reset`), l'API réinscrit ses organisations et ses conducteurs ; elle enregistre chaque équipage renvoyé par le service.
 - **Sécurité** : si `AGENTS_SERVICE_KEY` est définie, chaque appel doit porter l'en-tête `X-Service-Key` ; l'authentification des utilisateurs reste dans l'API.
-- **Itinéraires** : le service utilise l'estimateur local (20 km/h en ville, 60 km/h en interurbain). Le passage à OSRM se fera en fournissant une autre implémentation de `RoutingService`, sans changer les agents.
+- **Itinéraires** : le service utilise les estimateurs locaux partagés `routing.ESTIMATORS` (20 km/h en ville ; 60 km/h et facteur routier 1,2 en interurbain), les mêmes que le coordinateur et l'API FastAPI. Le passage à OSRM se fera en fournissant une autre implémentation de `RoutingService`, sans changer les agents.
+- **Prix** : le service applique la règle du produit (`PRODUCT_POLICY`), comme l'API FastAPI. Les variables `AGENTS_PRICING_COST_BASIS` et `AGENTS_PRICING_DIVISOR` permettent de lancer le service avec une autre règle, pour comparer.
 
 ## 9. Écarts avec le dossier de conception, validés par le groupe
 

@@ -31,11 +31,23 @@ from .driver import DriverAgent, DriverProfile, DriverTrip
 from .engine import Engine
 from .organization import OrganizationAgent
 from .passenger import PassengerAgent, PassengerRequest
-from .routing import EstimatedRouting, Point
+from .pricing import PRODUCT_POLICY, PricingPolicy
+from .routing import ESTIMATORS, Point
 from .scenarios import SCENARIOS
 
 # Interurbain : environ 200 km à vol d'oiseau pour 240 km de route entre Douala et Yaoundé, d'où un facteur 1,2.
-ESTIMATORS = {"URBAN": EstimatedRouting(speed_kmh=20), "INTERURBAN": EstimatedRouting(speed_kmh=60, road_factor=1.2)}
+
+
+def pricing_from_env() -> PricingPolicy:
+    """Règle de prix du service : celle du produit, sauf réglage explicite.
+
+    AGENTS_PRICING_COST_BASIS (SHARED_LEG, SHARED_LEG_PLUS_DETOUR, WHOLE_TRIP) et
+    AGENTS_PRICING_DIVISOR (OFFERED_SEATS, OCCUPANTS) permettent de comparer une autre règle.
+    """
+    return PricingPolicy(
+        cost_basis=os.environ.get("AGENTS_PRICING_COST_BASIS") or PRODUCT_POLICY.cost_basis,
+        divisor_rule=os.environ.get("AGENTS_PRICING_DIVISOR") or PRODUCT_POLICY.divisor_rule,
+    )
 
 
 # --- Corps des requêtes -------------------------------------------------------------------------
@@ -125,8 +137,10 @@ def passenger_status(engine: Engine, passenger: PassengerAgent) -> dict[str, Any
 
 # --- Application -----------------------------------------------------------------------------------
 
-def create_app(*, service_key: str | None = None, cfp_fanout: int = 5) -> FastAPI:
-    """Application FastAPI. `service_key` : clé exigée dans l'en-tête X-Service-Key (None : aucune)."""
+def create_app(*, service_key: str | None = None, cfp_fanout: int = 5, pricing: PricingPolicy | None = None) -> FastAPI:
+    """Application FastAPI. `service_key` : clé exigée dans l'en-tête X-Service-Key (None : aucune) ;
+    `pricing` : règle de prix des conducteurs (par défaut celle du produit, PRODUCT_POLICY)."""
+    policy = pricing or PRODUCT_POLICY
     app = FastAPI(title="MboaRide · service agents", version="1.0.0",
                   description="Moteur multi-agents MboaRide (protocole mboaride-cnp/1).")
     state = {"engine": Engine(cfp_fanout=cfp_fanout)}
@@ -181,7 +195,7 @@ def create_app(*, service_key: str | None = None, cfp_fanout: int = 5) -> FastAP
                     accepted_circles=frozenset(body.accepted_circles), accepts_students=body.accepts_students,
                     approved=body.approved, consumption_l_per_100km=body.consumption_l_per_100km,
                     organization_id=body.organization_id)
-                driver = DriverAgent(profile, ESTIMATORS[t.trip_kind])
+                driver = DriverAgent(profile, ESTIMATORS[t.trip_kind], pricing=policy)
                 engine().add_driver(driver)
             except ValueError as e:
                 raise HTTPException(409 if "déjà inscrit" in str(e) else 422, str(e)) from None
@@ -282,4 +296,4 @@ def create_app(*, service_key: str | None = None, cfp_fanout: int = 5) -> FastAP
     return app
 
 
-app = create_app(service_key=os.environ.get("AGENTS_SERVICE_KEY") or None)
+app = create_app(service_key=os.environ.get("AGENTS_SERVICE_KEY") or None, pricing=pricing_from_env())

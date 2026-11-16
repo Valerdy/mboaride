@@ -21,17 +21,17 @@ import asyncio
 from dataclasses import dataclass
 
 from . import config  # noqa: F401  (ajoute le dossier agents/ au chemin d'import)
-from mboaride_agents.pricing import (OCCUPANTS, SHARED_LEG_PLUS_DETOUR,  # type: ignore
-                                     PricingPolicy, Quote, quote)
-from mboaride_agents.routing import Detour, EstimatedRouting, Point  # type: ignore
+from mboaride_agents.pricing import PRODUCT_POLICY, Quote, quote  # type: ignore
+from mboaride_agents.routing import ESTIMATORS, Detour, EstimatedRouting, Point  # type: ignore
 
 NIVEAUX = {0: "organisation", 1: "partenaires", 2: "public"}
 NIVEAU_CODE = {v: k for k, v in NIVEAUX.items()}
 CERCLE_PUBLIC = 2
 
-POLITIQUE = PricingPolicy(divisor_rule=OCCUPANTS, cost_basis=SHARED_LEG_PLUS_DETOUR)
-ROUTAGE_URBAIN = EstimatedRouting(speed_kmh=20.0)        # heures de pointe à Douala
-ROUTAGE_INTERURBAIN = EstimatedRouting(speed_kmh=60.0)   # axe Douala-Yaoundé
+# Mêmes définitions que le service agents (agents/mboaride_agents) : même prix, mêmes horaires.
+POLITIQUE = PRODUCT_POLICY
+ROUTAGE_URBAIN = ESTIMATORS["URBAN"]              # 20 km/h, heures de pointe à Douala
+ROUTAGE_INTERURBAIN = ESTIMATORS["INTERURBAN"]    # 60 km/h, facteur routier 1,2 (Douala-Yaoundé)
 
 
 def minutes(t) -> float:
