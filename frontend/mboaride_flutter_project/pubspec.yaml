@@ -10,11 +10,13 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
-  http: ^1.2.0
+  http: ^1.6.0
   flutter_secure_storage: ^9.0.0
   intl_phone_field: ^3.2.0
   image_picker: ^1.1.2  # <-- Ajout pour la sélection de photo
   pinput: ^5.0.0
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
 
 dev_dependencies:
   flutter_test:

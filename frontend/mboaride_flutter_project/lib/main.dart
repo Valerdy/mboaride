@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
-import 'screens/registration_screen.dart';
 
-void main() {
-  runApp(const MboarideApp());
-}
+import 'core/mboa_theme.dart';
+import 'screens/registration_screen.dart';
+import 'screens/request_ride_screen.dart';
+
+/// Écran de départ. Par défaut : l'inscription.
+/// Pour ouvrir directement la demande de trajet pendant le développement :
+///   flutter run --dart-define=START=ride
+const String _startScreen =
+String.fromEnvironment('START', defaultValue: 'registration');
+
+void main() => runApp(const MboarideApp());
 
 class MboarideApp extends StatelessWidget {
   const MboarideApp({super.key});
@@ -13,17 +20,10 @@ class MboarideApp extends StatelessWidget {
     return MaterialApp(
       title: 'MBOARIDE',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.teal,
-        primaryColor: const Color(0xFF006644),
-        scaffoldBackgroundColor: const Color(0xFFF7F9F8),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF006644),
-          primary: const Color(0xFF006644),
-        ),
-        useMaterial3: true,
-      ),
-      home: const RegistrationScreen(),
+      theme: buildMboaTheme(),
+      home: _startScreen == 'ride'
+          ? const RequestRideScreen(token: '')
+          : const RegistrationScreen(),
     );
   }
 }
