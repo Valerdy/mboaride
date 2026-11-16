@@ -398,17 +398,39 @@ Les motifs de refus (`DECLINE.reason`, `NO_CREW.reason`) alimentent aussi le bil
 
 Les mesures actuelles sont données en section 7.
 
-## 8. Interface avec l'API Node (proposition, à définir avec le backend)
+## 8. Service agents : interface avec l'API de l'application
 
-| Route du service agents | Appelée par | Rôle |
+Le moteur est exposé en HTTP par `agents/mboaride_agents/service.py` (FastAPI). L'API de l'application l'appelle ; il n'est pas exposé sur Internet.
+
+```bash
+cd agents
+pip install -r requirements.txt
+AGENTS_SERVICE_KEY=une-cle-longue uvicorn mboaride_agents.service:app --port 8001
+# ou : docker build -t mboaride-agents agents && docker run -p 8001:8001 -e AGENTS_SERVICE_KEY=... mboaride-agents
+```
+
+| Route | Rôle | Réponse |
 |---|---|---|
-| `POST /negotiations` | API Node | soumet une demande (corps de `RIDE_REQUEST` + identifiant du passager) ; renvoie l'équipage, `NO_CREW`, ou en mode manuel les 3 offres et l'identifiant de conversation |
-| `POST /negotiations/{id}/choice` | API Node | choix de l'utilisateur en mode manuel : `offer_id`, `widen` ou `cancel` |
-| `POST /trips/{id}/events` | API Node | annulation ou retard d'un conducteur, annulation d'un passager |
-| `GET /negotiations/{id}/messages` | API Node, console | journal des messages d'une conversation (démonstration, US15) |
-| `POST /bench/runs` | banc, démonstrateur | lance un scénario S1 à S5 et renvoie les quatre mesures |
+| `GET /health` | sonde de santé (sans clé) | `{"status": "ok", "protocol": "mboaride-cnp/1"}` |
+| `POST /organizations` | inscrit une organisation : membres (`passenger:<id>`), partenaires, plafond de prix | 201, ou 409 si déjà inscrite |
+| `POST /drivers` | inscrit un conducteur : trajet, places, détour max, prix plancher, confort, cercles, organisation | 201, ou 409 si déjà inscrit |
+| `POST /negotiations` | soumet une demande et mène la négociation jusqu'au bout | état de la demande (voir ci-dessous) ; 409 si une demande est déjà en cours |
+| `GET /negotiations/{id}` | état de la demande ; après une annulation, renvoie la demande relancée | état de la demande |
+| `POST /negotiations/{id}/choice` | mode manuel : `{"action": "choose", "offer_id": ...}`, `{"action": "widen"}` ou `{"action": "withdraw"}` | état de la demande |
+| `POST /drivers/{id}/cancellation` | le conducteur annule son trajet (US07) ; ses passagers sont réaffectés | état de chaque passager concerné et durée de la réaffectation |
+| `GET /negotiations/{id}/messages` | journal des messages de la conversation (démonstration, US15) | liste de messages conformes au schéma |
+| `GET /metrics` | mesures de la grille sur tout ce que le service a traité | équipages, messages par équipage, temps, empreinte |
+| `POST /bench/runs` | rejoue S1, S3 ou S5 (`runs` exécutions) | rapport du banc par scénario |
+| `POST /reset` | repart d'un moteur vide (démonstration, tests) | 204 |
 
-L'état des conducteurs (trajets, places, agrément) vient de la base de l'API Node ; le service agents en garde une copie en mémoire pendant la négociation.
+Le corps de `POST /negotiations` est `{"passenger_id": "p042", "requested_at": "2026-11-10T06:15:00+01:00", "request": {...}}`, où `request` a exactement le format du corps d'un message `RIDE_REQUEST` (section 6). L'état de la demande renvoyé contient : `conversation_id`, `state` (`CONFIRMED`, `AWAITING_USER`, `NO_CREW`, `WITHDRAWN`), `round`, `crew` (conducteur, point et heures de prise en charge, prix), `proposals` (mode manuel : au plus 3 offres avec score, prix détaillé, heures, détour, confort), `failure` (motif et suggestion), `cancelled_bookings` et `messages` (nombre de messages de la conversation).
+
+Fonctionnement :
+
+- **Un seul moteur en mémoire, un verrou** : les appels sont traités un par un, dans l'ordre d'arrivée, ce qui garde le déterminisme.
+- **La base de l'API fait foi** : au démarrage du service (ou après `POST /reset`), l'API réinscrit ses organisations et ses conducteurs ; elle enregistre chaque équipage renvoyé par le service.
+- **Sécurité** : si `AGENTS_SERVICE_KEY` est définie, chaque appel doit porter l'en-tête `X-Service-Key` ; l'authentification des utilisateurs reste dans l'API.
+- **Itinéraires** : le service utilise l'estimateur local (20 km/h en ville, 60 km/h en interurbain). Le passage à OSRM se fera en fournissant une autre implémentation de `RoutingService`, sans changer les agents.
 
 ## 9. Écarts avec le dossier de conception, validés par le groupe
 
