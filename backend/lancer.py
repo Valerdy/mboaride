@@ -22,7 +22,7 @@ APP = Path(__file__).resolve().parent
 RACINE = APP.parent
 PGDATA = APP / ".pgdata"
 SCRIPTS_SQL = [APP / "sql" / n for n in
-               ("01_schema.sql", "02_donnees_exemple.sql", "04_sprint2.sql", "05_sprint3.sql")]
+               ("01_schema.sql", "02_donnees_exemple.sql", "04_sprint2.sql", "05_sprint3.sql", "06_sprint3_eleves.sql")]
 PORT = 8000
 
 
@@ -50,9 +50,14 @@ def main() -> None:
         with psycopg.connect(dsn, autocommit=True) as c:     # mise à niveau d'une base créée avant le sprint 3
             if not c.execute("SELECT to_regclass('mboaride.courriel')").fetchone()[0]:
                 print("2/3  Mise à niveau de la base (sprint 3)…")
-                c.execute((APP / "sql" / "05_sprint3.sql").read_text(encoding="utf-8"))
+                for nom in ("05_sprint3.sql", "06_sprint3_eleves.sql"):
+                    c.execute((APP / "sql" / nom).read_text(encoding="utf-8"))
                 subprocess.run([sys.executable, "scripts/seed_demo.py"], cwd=APP, check=True,
                                env={**os.environ, "PYTHONPATH": str(APP)})
+            elif not c.execute("SELECT 1 FROM information_schema.columns WHERE table_name = "
+                               "'notification' AND column_name = 'id_eleve'").fetchone():
+                print("2/3  Mise à niveau de la base (comptes élèves)…")
+                c.execute((APP / "sql" / "06_sprint3_eleves.sql").read_text(encoding="utf-8"))
             else:
                 print("2/3  Base déjà prête (supprime le dossier .pgdata pour repartir de zéro)")
 
