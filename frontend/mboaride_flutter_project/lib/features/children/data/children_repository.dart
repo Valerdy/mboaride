@@ -6,9 +6,9 @@ abstract class ChildrenRepository {
   Future<List<Child>> children();
 
   Future<Child> addChild({
-    required String name,
+    required String firstName,
     required int age,
-    required String school,
+    int? schoolId,
   });
 
   Future<Child> setAuthorization(int childId, bool authorized);
@@ -31,14 +31,14 @@ class ApiChildrenRepository implements ChildrenRepository {
 
   @override
   Future<Child> addChild({
-    required String name,
+    required String firstName,
     required int age,
-    required String school,
+    int? schoolId,
   }) async {
     final body = await _client.post('/api/moi/eleves', {
-      'nom': name,
+      'prenom': firstName,
       'age': age,
-      'ecole': school,
+      if (schoolId != null) 'id_etablissement': schoolId,
     });
     return Child.fromJson(body as Map<String, dynamic>);
   }
@@ -67,16 +67,18 @@ class FakeChildrenRepository implements ChildrenRepository {
   final List<Child> _children = [
     const Child(
       id: 1,
-      name: 'Ariane Mbarga',
-      age: 14,
-      school: 'Collège Saint-Michel, Bonabéri',
+      firstName: 'Ange',
+      age: 12,
+      school: 'Collège B (Bonapriso)',
+      schoolId: 3,
       authorized: true,
     ),
     const Child(
       id: 2,
-      name: 'Yves Mbarga',
-      age: 12,
-      school: 'Collège Saint-Michel, Bonabéri',
+      firstName: 'Marc',
+      age: 15,
+      school: 'Collège B (Bonapriso)',
+      schoolId: 3,
       authorized: false,
     ),
   ];
@@ -91,16 +93,17 @@ class FakeChildrenRepository implements ChildrenRepository {
 
   @override
   Future<Child> addChild({
-    required String name,
+    required String firstName,
     required int age,
-    required String school,
+    int? schoolId,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 150));
     final child = Child(
       id: _nextId++,
-      name: name,
+      firstName: firstName,
       age: age,
-      school: school,
+      school: schoolId == null ? null : 'Collège B (Bonapriso)',
+      schoolId: schoolId,
       authorized: true,
     );
     _children.add(child);
@@ -114,9 +117,10 @@ class FakeChildrenRepository implements ChildrenRepository {
     final previous = _children[index];
     final updated = Child(
       id: previous.id,
-      name: previous.name,
+      firstName: previous.firstName,
       age: previous.age,
       school: previous.school,
+      schoolId: previous.schoolId,
       authorized: authorized,
     );
     _children[index] = updated;
@@ -136,13 +140,13 @@ class FakeChildrenRepository implements ChildrenRepository {
       ),
       ChildEvent(
         kind: 'depart',
-        label: 'Montée à bord à Bonabéri',
+        label: 'Ange est montée à bord à Makepe à 06:52.',
         at: 'aujourd\'hui 06:52',
         driver: 'Armand Essomba',
       ),
       ChildEvent(
         kind: 'arrivee',
-        label: 'Déposée au collège Saint-Michel',
+        label: 'Ange est arrivée à Bonapriso à 07:24.',
         at: 'aujourd\'hui 07:24',
         driver: 'Armand Essomba',
       ),

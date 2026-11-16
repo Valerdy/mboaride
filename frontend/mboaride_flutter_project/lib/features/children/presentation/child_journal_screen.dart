@@ -56,7 +56,7 @@ class _ChildJournalScreenState extends State<ChildJournalScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.child.name)),
+    appBar: AppBar(title: Text(widget.child.firstName)),
     body: RefreshIndicator(
       onRefresh: _load,
       child: _loading
@@ -65,7 +65,7 @@ class _ChildJournalScreenState extends State<ChildJournalScreen> {
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 32),
               children: [
                 Text(
-                  '${widget.child.school} · ${widget.child.age} ans',
+                  '${widget.child.schoolLabel} · ${widget.child.age} ans',
                   style: const TextStyle(
                     fontSize: 13,
                     color: MboaColors.mutedText,

@@ -12,6 +12,9 @@ abstract class IntercityRepository {
     required int pickupPointId,
     required DateTime date,
     int? childId,
+
+    /// Prix affiché au voyageur : un écart renvoie un 409 et rien n'est réservé.
+    int? announcedPriceFcfa,
   });
 }
 
@@ -35,11 +38,13 @@ class ApiIntercityRepository implements IntercityRepository {
     required int pickupPointId,
     required DateTime date,
     int? childId,
+    int? announcedPriceFcfa,
   }) async {
     final body = await _client.post('/api/voyages/$tripId/reservations', {
       'id_point_depart': pickupPointId,
       'date_trajet': isoDate(date),
       if (childId != null) 'id_eleve': childId,
+      if (announcedPriceFcfa != null) 'prix_annonce_fcfa': announcedPriceFcfa,
     });
     return SeatBooking.fromJson(body as Map<String, dynamic>);
   }
@@ -121,6 +126,7 @@ class FakeIntercityRepository implements IntercityRepository {
     required int pickupPointId,
     required DateTime date,
     int? childId,
+    int? announcedPriceFcfa,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 200));
     _taken[tripId] = (_taken[tripId] ?? 0) + 1;

@@ -372,6 +372,7 @@ class _SeatSheetState extends State<_SeatSheet> {
         pickupPointId: _pointId,
         date: widget.date,
         childId: widget.childId,
+        announcedPriceFcfa: widget.trip.priceFcfa,
       );
       if (!mounted) return;
       Navigator.of(context).pop(booking);

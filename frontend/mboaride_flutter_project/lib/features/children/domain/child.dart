@@ -2,16 +2,25 @@
 class Child {
   const Child({
     required this.id,
-    required this.name,
+    required this.firstName,
     required this.age,
-    required this.school,
     required this.authorized,
+    this.school,
+    this.schoolId,
+    this.notifyDeparture = true,
+    this.notifyArrival = true,
   });
 
   final int id;
-  final String name;
+
+  /// Prénom seul : la base ne garde que le prénom et l'âge déclaré de l'élève
+  /// (minimisation des données).
+  final String firstName;
   final int age;
-  final String school;
+  final String? school;
+  final int? schoolId;
+  final bool notifyDeparture;
+  final bool notifyArrival;
 
   /// Autorisation parentale : sans elle, aucune réservation n'est possible
   /// (règle appliquée aussi par la base, déclencheur `autorisation_eleve`).
@@ -19,34 +28,39 @@ class Child {
 
   factory Child.fromJson(Map<String, dynamic> json) => Child(
     id: (json['id_eleve'] as num?)?.toInt() ?? 0,
-    name: json['nom'] as String? ?? '',
+    firstName: json['prenom'] as String? ?? '',
     age: (json['age'] as num?)?.toInt() ?? 0,
-    school: json['ecole'] as String? ?? '',
+    school: json['etablissement'] as String?,
+    schoolId: (json['id_etablissement'] as num?)?.toInt(),
     authorized: json['autorisation_active'] as bool? ?? false,
+    notifyDeparture: json['notifier_depart'] as bool? ?? true,
+    notifyArrival: json['notifier_arrivee'] as bool? ?? true,
   );
 
   Map<String, dynamic> toJson() => {
-    'nom': name,
+    'prenom': firstName,
     'age': age,
-    'ecole': school,
+    if (schoolId != null) 'id_etablissement': schoolId,
   };
 
-  /// Règle produit : les comptes élèves sont réservés aux 12 ans et plus.
+  /// Règle produit et contrainte de la base : un compte élève va de 12 à 17 ans.
   static const int minimumAge = 12;
+  static const int maximumAge = 17;
+
+  /// Établissement affiché, ou une mention claire quand il n'est pas renseigné.
+  String get schoolLabel =>
+      school == null || school!.isEmpty ? 'Établissement non renseigné' : school!;
 
   static String? validate({
-    required String name,
+    required String firstName,
     required String ageText,
-    required String school,
   }) {
-    if (name.trim().length < 2) return 'Indiquez le nom de l\'élève.';
+    if (firstName.trim().length < 2) return 'Indiquez le prénom de l\'élève.';
     final age = int.tryParse(ageText.trim());
     if (age == null) return 'Indiquez l\'âge en chiffres.';
-    if (age < minimumAge) {
-      return 'MboaRide n\'accepte les élèves qu\'à partir de $minimumAge ans.';
+    if (age < minimumAge || age > maximumAge) {
+      return 'Un compte élève va de $minimumAge à $maximumAge ans.';
     }
-    if (age > 25) return 'Vérifiez l\'âge saisi.';
-    if (school.trim().length < 2) return 'Indiquez l\'établissement.';
     return null;
   }
 }
