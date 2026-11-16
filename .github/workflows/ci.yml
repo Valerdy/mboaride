@@ -32,3 +32,22 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt
       - run: pytest
+  flutter:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend/mboaride_flutter_project } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - run: flutter pub get
+      - run: flutter analyze lib
+      - run: flutter test
+  api-node:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: "backend/mboaride-api-node(1)" } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm ci --no-audit --fund=false
+      - run: npm test
