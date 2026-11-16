@@ -5,7 +5,9 @@ Les agents dépendent de l'interface `RoutingService`, pas d'une implémentation
   routier, vitesse moyenne). Sert aux tests et aux scénarios du banc de mesure,
   qui ne doivent pas dépendre du réseau.
 - une implémentation qui appelle l'API Node (`POST /routes/detours`, OSRM) viendra
-  avec l'intégration ; elle renverra le même `Detour`.
+  avec l'intégration ; elle renverra le même `Detour`. L'API Node calcule déjà le
+  trajet direct pour en déduire le détour : elle pourra donc remplir
+  `direct_distance_m`, dont la règle de partage des frais a besoin.
 """
 from __future__ import annotations
 
@@ -40,8 +42,18 @@ class Detour:
     detour_m: int            # distance ajoutée au trajet du conducteur
     detour_s: int            # temps ajouté au trajet du conducteur
     pickup_offset_s: int     # temps entre le départ du conducteur et la prise en charge
-    shared_distance_m: int   # distance parcourue avec le passager : base du prix
+    shared_distance_m: int   # distance parcourue avec le passager
     shared_duration_s: int   # durée parcourue avec le passager
+    direct_distance_m: int = 0   # trajet direct A -> B du conducteur, sans ce passager
+
+    @property
+    def trip_distance_m(self) -> int:
+        """Trajet réellement parcouru par le conducteur avec ce passager à bord.
+
+        C'est la base de la règle de partage des frais retenue : le coût de ce
+        trajet est partagé entre les occupants, et non le seul tronçon commun.
+        """
+        return self.direct_distance_m + self.detour_m
 
 
 class NoRouteError(Exception):
@@ -89,6 +101,7 @@ class EstimatedRouting:
             pickup_offset_s=_round(to_pickup_s),
             shared_distance_m=_round(shared_m),
             shared_duration_s=_round(shared_s),
+            direct_distance_m=_round(direct_m),
         )
 
 
