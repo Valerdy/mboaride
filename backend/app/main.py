@@ -1,4 +1,4 @@
-"""MboaRide · API des sprints 2 et 3 (US02, US09, US10, US13, US14, scénarios de démo).
+"""MboaRide · API des sprints 2 et 3 (US02, US09, US10, US13, US14, scénarios de démo) et interface web.
 
     uvicorn app.main:app --reload        puis http://127.0.0.1:8000
     Documentation interactive de l'API :  http://127.0.0.1:8000/docs
@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import psycopg
 from fastapi import Depends, FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from .config import RACINE
 from .db import get_conn
 from .routes import annulation, demo, organisation, paiement, preferences, prix
 from .securite import utilisateur_courant
@@ -23,6 +26,8 @@ app.include_router(paiement.router)
 app.include_router(annulation.router)
 app.include_router(organisation.router)
 app.include_router(demo.router)
+
+WEB = RACINE / "web"
 
 
 @app.get("/health", tags=["Santé"])
@@ -66,3 +71,11 @@ def mes_demandes(u: dict = Depends(utilisateur_courant),
              FROM demande WHERE id_demandeur = %s
             ORDER BY (statut = 'ouverte') DESC, id_demande DESC""", (u["id_utilisateur"],)).fetchall()
 
+
+app.mount("/static", StaticFiles(directory=WEB), name="static")
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/rejoindre/{jeton}", include_in_schema=False)
+def page(jeton: str | None = None) -> FileResponse:
+    return FileResponse(WEB / "index.html")
