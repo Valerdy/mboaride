@@ -23,6 +23,7 @@ class ApiRideRequestRepository implements RideRequestRepository {
       'date_trajet': '${start.year}-${two(start.month)}-${two(start.day)}',
       'prix_max_fcfa': request.maxPriceFcfa,
       'clim_obligatoire': request.comforts.contains(Comfort.airConditioning),
+      if (request.circleCode != null) 'cercle_max': request.circleCode,
     };
   }
 

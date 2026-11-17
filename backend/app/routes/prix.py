@@ -208,6 +208,7 @@ def diagnostic(id_demande: int, u: dict = Depends(utilisateur_courant),
     motifs: dict[str, int] = {}
     confirmables = 0
     budget_min = None
+    proches = []        # (écart en minutes, conducteur, arrivée) des trajets refusés pour l'horaire
     for r in ids:
         try:
             e = evaluer(conn, d, _trajet(conn, r["id_trajet"]))
@@ -216,6 +217,13 @@ def diagnostic(id_demande: int, u: dict = Depends(utilisateur_courant),
             continue
         if not e["horaires_compatibles"]:
             motifs["horaires"] = motifs.get("horaires", 0) + 1
+            t = _trajet(conn, r["id_trajet"])
+            h = moteur.arrivee_sans_fenetre(moteur.driver_from_row(t), moteur.request_from_row(d))
+            if h is not None:
+                arrivee = int(h[1][:2]) * 60 + int(h[1][3:])
+                tot, tard = moteur.minutes(d["arrivee_au_plus_tot"]), moteur.minutes(d["arrivee_au_plus_tard"])
+                ecart = tot - arrivee if arrivee < tot else arrivee - tard
+                proches.append((ecart, t["conducteur_prenom"], t["depart_libelle"], h[1], arrivee))
         elif not e["dans_le_budget"]:
             motifs["budget"] = motifs.get("budget", 0) + 1
             budget_min = min(budget_min or e["prix_fcfa"], e["prix_fcfa"])
@@ -236,7 +244,13 @@ def diagnostic(id_demande: int, u: dict = Depends(utilisateur_courant),
     if budget_min:
         suggestions.append({"action": "budget", "prix_max_fcfa": budget_min,
                             "message": f"Avec un maximum de {budget_min} FCFA, une offre devient confirmable"})
-    if motifs.get("horaires"):
+    if proches:
+        ecart, prenom, depart, arrivee_txt, arrivee = min(proches)
+        debut, fin = moteur.hhmm(arrivee - 10), moteur.hhmm(arrivee + 15)
+        suggestions.append({"action": "fenetre", "arrivee_au_plus_tot": debut, "arrivee_au_plus_tard": fin,
+                            "message": f"{prenom} (départ de {depart}) vous déposerait vers {arrivee_txt} : "
+                                       f"demandez une arrivée entre {debut} et {fin}"})
+    elif motifs.get("horaires"):
         suggestions.append({"action": "fenetre",
                             "message": "Élargir votre fenêtre d'arrivée de 10 à 15 minutes peut rendre "
                                        "des trajets compatibles"})

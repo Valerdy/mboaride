@@ -73,6 +73,24 @@ def creer(body: NouvelleDemande, u: dict = Depends(utilisateur_courant),
         raise HTTPException(422, "Le départ et l'arrivée sont trop proches")
     if body.date_trajet < date.today():
         raise HTTPException(422, "La date du trajet est déjà passée")
+    cercle = body.cercle_max or cercle_par_defaut(conn, u)
+    clim = body.clim_obligatoire or u["souhaite_clim"]
+    mode = body.mode_reservation or u["mode_reservation"]
+    # Même trajet, même jour, même fenêtre déjà demandé (bouton touché deux fois, ou nouvel
+    # essai avec un autre cercle ou un autre prix) : on met à jour la demande ouverte.
+    meme = conn.execute(
+        """UPDATE demande SET prix_max_fcfa = %s, clim_obligatoire = %s, cercle_max = %s, mode_reservation = %s
+            WHERE id_demande = (SELECT id_demande FROM demande
+                                 WHERE id_demandeur = %s AND statut = 'ouverte' AND date_unique = %s
+                                   AND depart_libelle = %s AND arrivee_libelle = %s
+                                   AND arrivee_au_plus_tot = %s AND arrivee_au_plus_tard = %s
+                                 ORDER BY id_demande DESC LIMIT 1)
+           RETURNING id_demande, statut, cercle_max""",
+        (body.prix_max_fcfa, clim, cercle, mode, u["id_utilisateur"], body.date_trajet,
+         body.depart.libelle, body.arrivee.libelle, body.arrivee_au_plus_tot, body.arrivee_au_plus_tard)).fetchone()
+    if meme is not None:
+        return {"id": meme["id_demande"], "id_demande": meme["id_demande"], "status": meme["statut"],
+                "cercle_max": meme["cercle_max"], "deja_demandee": True}
     org = conn.execute("SELECT id_organisation FROM appartenance WHERE id_utilisateur = %s "
                        "ORDER BY id_organisation LIMIT 1", (u["id_utilisateur"],)).fetchone()
     d = conn.execute(
@@ -85,9 +103,7 @@ def creer(body: NouvelleDemande, u: dict = Depends(utilisateur_courant),
          body.depart.libelle, round(body.depart.lat, 6), round(body.depart.lon, 6),
          body.arrivee.libelle, round(body.arrivee.lat, 6), round(body.arrivee.lon, 6),
          body.arrivee_au_plus_tot, body.arrivee_au_plus_tard, body.date_trajet, body.prix_max_fcfa,
-         body.clim_obligatoire or u["souhaite_clim"],
-         body.mode_reservation or u["mode_reservation"],
-         body.cercle_max or cercle_par_defaut(conn, u))).fetchone()
+         clim, mode, cercle)).fetchone()
     return {"id": d["id_demande"], "id_demande": d["id_demande"], "status": d["statut"],
             "cercle_max": d["cercle_max"]}
 
