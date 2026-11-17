@@ -3,7 +3,8 @@
 from datetime import time
 
 from app import moteur
-from mboaride_agents.pricing import quote
+from mboaride_agents.pricing import PRODUCT_POLICY, quote
+from mboaride_agents.routing import ESTIMATORS
 
 TRAJET = {"depart_lat": 4.088, "depart_lon": 9.765, "arrivee_lat": 4.042, "arrivee_lon": 9.689,
           "heure_depart": time(6, 50), "places_offertes": 3, "detour_max_km": 3.0, "conso_l_100km": 7.5,
@@ -36,3 +37,10 @@ def test_horaires_et_filtres_des_agents():
     assert "06:50" < prise < arrivee <= "07:50" and detour_km <= 3.0
     assert moteur.horaires(moteur.driver_from_row({**TRAJET, "detour_max_km": 0.001}), d) is None      # DETOUR_TOO_LONG
     assert moteur.horaires(moteur.driver_from_row({**TRAJET, "heure_depart": time(5, 0)}), d) is None  # OUTSIDE_WINDOW
+
+
+def test_memes_regles_que_le_service_agents():
+    # L'API Node passe par le service agents : les deux doivent annoncer le même prix et les mêmes horaires.
+    assert moteur.POLITIQUE is PRODUCT_POLICY
+    assert moteur.ROUTAGE_URBAIN is ESTIMATORS["URBAN"]
+    assert moteur.ROUTAGE_INTERURBAIN is ESTIMATORS["INTERURBAN"]

@@ -21,18 +21,19 @@ import asyncio
 from dataclasses import dataclass
 
 from . import config  # ajoute le dossier agents/ au chemin d'import
-from mboaride_agents.pricing import (OCCUPANTS, SHARED_LEG_PLUS_DETOUR,  # type: ignore
-                                     PricingPolicy, Quote, quote)
 from mboaride_agents.osrm import OsrmRouting  # type: ignore
-from mboaride_agents.routing import Detour, EstimatedRouting, Point  # type: ignore
+from mboaride_agents.pricing import PRODUCT_POLICY, Quote, quote  # type: ignore
+from mboaride_agents.routing import ESTIMATORS, Detour, EstimatedRouting, Point  # type: ignore
 
 NIVEAUX = {0: "organisation", 1: "partenaires", 2: "public"}
 NIVEAU_CODE = {v: k for k, v in NIVEAUX.items()}
 CERCLE_PUBLIC = 2
 
-POLITIQUE = PricingPolicy(divisor_rule=OCCUPANTS, cost_basis=SHARED_LEG_PLUS_DETOUR)
-ESTIMATEUR_URBAIN = EstimatedRouting(speed_kmh=20.0)        # heures de pointe à Douala
-ESTIMATEUR_INTERURBAIN = EstimatedRouting(speed_kmh=60.0)   # axe Douala-Yaoundé
+# Mêmes définitions que le service agents (agents/mboaride_agents) : même prix, mêmes
+# horaires, pour que les deux API n'annoncent jamais deux prix pour le même trajet.
+POLITIQUE = PRODUCT_POLICY
+ESTIMATEUR_URBAIN = ESTIMATORS["URBAN"]              # 20 km/h, heures de pointe à Douala
+ESTIMATEUR_INTERURBAIN = ESTIMATORS["INTERURBAN"]    # 60 km/h, facteur routier 1,2
 
 # Avec un serveur OSRM configuré, les détours sont mesurés sur le réseau routier et
 # l'estimateur devient le repli : une panne du serveur ralentit un peu la précision,

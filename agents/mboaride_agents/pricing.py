@@ -114,3 +114,9 @@ def quote(policy: PricingPolicy, *, shared_distance_m: int, consumption_l_per_10
     commission = round_half_up(share * policy.commission_rate) if with_commission else 0
     return Quote(price=share + commission, fuel_cost=fuel_cost, tolls=tolls, divisor=divisor,
                  commission=commission)
+
+
+# Règle retenue pour le produit (SR-51) : tronçon commun + détour imposé, partagé entre
+# les occupants à bord. Le service agents et l'API FastAPI l'importent d'ici, pour que
+# les deux annoncent le même prix pour le même trajet.
+PRODUCT_POLICY = PricingPolicy(divisor_rule=OCCUPANTS, cost_basis=SHARED_LEG_PLUS_DETOUR)

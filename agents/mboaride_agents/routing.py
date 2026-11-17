@@ -108,3 +108,9 @@ class EstimatedRouting:
 def _round(value: float) -> int:
     """Arrondi au plus proche, demi vers le haut (valeurs positives)."""
     return math.floor(value + 0.5)
+
+
+# Estimateurs partagés par le coordinateur, le service agents et l'API FastAPI :
+# 20 km/h en ville aux heures de pointe ; 60 km/h en interurbain, avec un facteur
+# routier de 1,2 (Douala-Yaoundé : environ 200 km à vol d'oiseau pour 240 km de route).
+ESTIMATORS = {"URBAN": EstimatedRouting(speed_kmh=20), "INTERURBAN": EstimatedRouting(speed_kmh=60, road_factor=1.2)}

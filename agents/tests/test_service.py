@@ -9,10 +9,14 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from mboaride_agents import messages  # noqa: E402
-from mboaride_agents.service import create_app  # noqa: E402
+from mboaride_agents.pricing import OCCUPANTS, OFFERED_SEATS, PRODUCT_POLICY, SHARED_LEG, PricingPolicy, quote  # noqa: E402
+from mboaride_agents.service import create_app, pricing_from_env  # noqa: E402
 
 EXAMPLES = json.loads((Path(__file__).resolve().parent.parent / "schemas" / "examples.json").read_text(encoding="utf-8"))
-GRACE = EXAMPLES["nominal"][0]["body"]   # Kotto -> Bonanjo, 7 h 30 - 7 h 50, 300 FCFA, mode autonome
+# Kotto -> Bonanjo, 7 h 30 - 7 h 50, mode autonome. Budget porté à 600 FCFA (prix d'un taxi) : avec la
+# règle du produit, le premier passager d'une voiture vide partage les frais avec le seul conducteur
+# (environ 345 FCFA ici), au-dessus des 300 FCFA de l'exemple du protocole.
+GRACE = {**EXAMPLES["nominal"][0]["body"], "max_price": 600}
 AT = "2026-11-10T06:15:00+01:00"
 ORG = "organization:entreprise-test"
 
@@ -185,3 +189,46 @@ def test_service_key_is_required_when_configured():
     assert c.get("/metrics").status_code == 401
     assert c.get("/metrics", headers={"X-Service-Key": "mauvaise"}).status_code == 401
     assert c.get("/metrics", headers={"X-Service-Key": "secret-de-test"}).status_code == 200
+
+
+# --- Règle de prix : la même que l'API FastAPI ------------------------------------------------------
+
+def first_offer(client):
+    negotiate(client)
+    return next(m["body"] for m in client.get("/negotiations/r-p042-1/messages").json() if m["type"] == "PROPOSAL")
+
+
+def expected_price(offer, policy):
+    return quote(policy, shared_distance_m=offer["shared_distance_m"], detour_m=offer["detour_m"],
+                 consumption_l_per_100km=8.0, tolls=0, seats_total=3, seats_booked=0, seats_requested=1,
+                 min_price=0, with_commission=False).price
+
+
+def test_service_applies_the_product_pricing_rule_by_default(client):
+    offer = first_offer(client)
+    assert offer["price_breakdown"]["divisor"] == 2          # conducteur + le seul passager à bord
+    assert offer["price"] == expected_price(offer, PRODUCT_POLICY)
+
+
+def test_old_pricing_rule_is_still_available():
+    c = TestClient(create_app(pricing=PricingPolicy()))
+    c.post("/organizations", json={"organization_id": "entreprise-test", "members": ["passenger:p042"]})
+    for d in (D07, D03):
+        c.post("/drivers", json=d)
+    offer = first_offer(c)
+    assert offer["price_breakdown"]["divisor"] == 4          # conducteur + 3 places offertes
+    assert offer["price"] == expected_price(offer, PricingPolicy())
+
+
+def test_pricing_rule_can_be_set_by_environment(monkeypatch):
+    assert pricing_from_env() == PRODUCT_POLICY
+    monkeypatch.setenv("AGENTS_PRICING_COST_BASIS", SHARED_LEG)
+    monkeypatch.setenv("AGENTS_PRICING_DIVISOR", OFFERED_SEATS)
+    assert pricing_from_env() == PricingPolicy(cost_basis=SHARED_LEG, divisor_rule=OFFERED_SEATS)
+    monkeypatch.setenv("AGENTS_PRICING_DIVISOR", "AU_HASARD")
+    with pytest.raises(ValueError):
+        pricing_from_env()
+
+
+def test_product_rule_is_the_one_measured_in_sr51():
+    assert (PRODUCT_POLICY.divisor_rule, PRODUCT_POLICY.cost_basis) == (OCCUPANTS, "SHARED_LEG_PLUS_DETOUR")
