@@ -297,6 +297,7 @@ def _equipage(conn, t: dict, jour: date) -> dict:
                   d.arrivee_au_plus_tard, r.prix_fcfa
              FROM reservation r JOIN demande d USING (id_demande)
              JOIN utilisateur u ON u.id_utilisateur = d.id_demandeur
+             JOIN paiement p ON p.id_reservation = r.id_reservation AND p.statut = 'reussi'
             WHERE r.id_trajet = %s AND r.date_trajet = %s AND r.statut = 'confirmee'
             ORDER BY r.heure_prise_en_charge, r.id_reservation""", (t["id_trajet"], jour)).fetchall()
     arrivee = max((a["heure_arrivee_estimee"] for a in arrets), default=None)
@@ -348,8 +349,9 @@ def prochain_equipage(u: dict = Depends(utilisateur_courant),
                     "SELECT 1 FROM indisponibilite_trajet WHERE id_trajet = %s AND date_trajet = %s",
                     (t["id_trajet"], jour)).fetchone():
                 continue
-            pris = conn.execute("SELECT count(*) n FROM reservation WHERE id_trajet = %s AND date_trajet = %s "
-                                "AND statut = 'confirmee'", (t["id_trajet"], jour)).fetchone()["n"]
+            pris = conn.execute("SELECT count(*) n FROM reservation r JOIN paiement p USING (id_reservation) "
+                                "WHERE r.id_trajet = %s AND r.date_trajet = %s AND r.statut = 'confirmee' "
+                                "AND p.statut = 'reussi'", (t["id_trajet"], jour)).fetchone()["n"]
             departs.append((pris == 0, jour, t["heure_depart"], t["id_trajet"], t))
     if not departs:
         return None

@@ -113,6 +113,16 @@ def test_parcours_conducteur_et_passagere(client, sql, comptes):
         "prix_annonce_fcfa": offre["prix_fcfa"]})
     assert r.status_code == 201, r.text
 
+    # Place retenue, mais trajet à confirmer : le conducteur ne voit pas encore Lina.
+    assert client.get("/api/moi/conducteur/equipage", headers=kevin).json()["arrets"] == []
+    compte = client.post("/api/moi/comptes-mobile-money", headers=lina, json={
+        "operateur": "orange", "telephone": "690 00 05 02", "titulaire": "Lina Ebolo"}).json()
+    client.post(f"/api/paiements/{r.json()['id_paiement']}/mobile-money", headers=lina,
+                json={"id_compte": compte["id_compte"]})
+    paye = client.post(f"/api/paiements/{r.json()['id_paiement']}/simulation-operateur", headers=lina,
+                       json={"resultat": "valide"}).json()
+    assert paye["statut"] == "reussi"
+
     # --- Conducteur : équipage, activité, retard, gains, évaluation -----------------------
     eq = client.get("/api/moi/conducteur/equipage", headers=kevin).json()
     assert eq["id_trajet"] == id_trajet and eq["date_trajet"] == jour.isoformat()
@@ -128,7 +138,7 @@ def test_parcours_conducteur_et_passagere(client, sql, comptes):
     assert notes[0]["type"] == "retard" and "Kevin" in notes[0]["message"]
 
     g = client.get("/api/moi/conducteur/gains", headers=kevin).json()
-    assert g["paiements"][0]["recu"] is False and g["dernier_trajet_carburant_fcfa"] > 0
+    assert g["paiements"][0]["recu"] is True and g["dernier_trajet_carburant_fcfa"] > 0
 
     ev = client.post("/api/moi/conducteur/evaluations", headers=kevin, json={
         "id_trajet": id_trajet, "date_trajet": jour.isoformat(), "notes": [{"passager": "Lina", "note": 5}]})
@@ -250,3 +260,62 @@ def test_passager_d_entreprise_et_chauffeur_sans_organisation(client, sql, secre
     offre = next(o for o in client.get(f"/api/moi/demandes/{d3['id']}/offres", headers=kevin).json()
                  if o["id_trajet"] == id_trajet)
     assert offre["confirmable"] is True
+
+
+
+def test_paiement_mobile_money_et_mes_trajets(client, sql, comptes):
+    """Choisir une offre retient la place ; le trajet n'est confirmé qu'une fois payé avec un
+    compte Mobile Money enregistré (opérateur, numéro, titulaire, jamais de code secret)."""
+    kevin, lina = comptes["kevin"], comptes["lina"]
+    client.post("/api/moi/profil", headers=kevin)
+    client.post("/api/moi/profil", headers=lina)
+    for piece in ("piece_identite", "permis", "casier_judiciaire", "assurance"):
+        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers=kevin)
+    client.put("/api/moi/conducteur/vehicule", headers=kevin, json={
+        "marque_modele": "Berline", "immatriculation": "LT 9", "places_passagers": 3, "conso_l_100km": 8})
+    id_trajet = client.post("/api/moi/conducteur/trajets", headers=kevin, json={
+        "depart": "Logpom", "arrivee": "Bonanjo", "heure_depart": "06:50", "jours_semaine": [1, 2, 3, 4, 5],
+        "places": 3, "detour_max_km": 3}).json()["id_trajet"]
+    jour = prochain_jour_ouvre().isoformat()
+    id_demande = client.post("/api/demandes", headers=lina, json={
+        "depart": {"libelle": "Kotto", "lat": 4.072, "lon": 9.766},
+        "arrivee": {"libelle": "Bonanjo", "lat": 4.042, "lon": 9.689},
+        "arrivee_au_plus_tot": "07:20", "arrivee_au_plus_tard": "07:55",
+        "date_trajet": jour, "prix_max_fcfa": 800}).json()["id"]
+    offre = next(o for o in client.get(f"/api/moi/demandes/{id_demande}/offres", headers=lina).json()
+                 if o["id_trajet"] == id_trajet)
+    resa = client.post("/api/reservations", headers=lina, json={
+        "id_demande": id_demande, "id_trajet": id_trajet, "date_trajet": jour,
+        "prix_annonce_fcfa": offre["prix_fcfa"]}).json()
+
+    trajets = client.get("/api/moi/reservations", headers=lina).json()
+    assert trajets[0]["etat"] == "a_confirmer" and trajets[0]["conducteur"] == "Kevin"
+
+    # Comptes : le numéro doit appartenir à l'opérateur ; le premier compte est celui par défaut.
+    faux = client.post("/api/moi/comptes-mobile-money", headers=lina, json={
+        "operateur": "mtn", "telephone": "690000502", "titulaire": "Lina Ebolo"})
+    assert faux.status_code == 422 and "Orange" in faux.json()["detail"]
+    compte = client.post("/api/moi/comptes-mobile-money", headers=lina, json={
+        "operateur": "mtn", "telephone": "677 00 05 02", "titulaire": "Lina Ebolo", "par_defaut": False}).json()
+    assert compte["par_defaut"] is True and compte["telephone"] == "+237677000502"
+    assert [c["operateur"] for c in client.get("/api/moi/comptes-mobile-money", headers=lina).json()] == ["mtn"]
+    assert "code" not in str(sql("SELECT * FROM compte_mobile_money")).lower()
+
+    # Paiement refusé sur le téléphone : toujours à confirmer, on peut réessayer.
+    client.post(f"/api/paiements/{resa['id_paiement']}/mobile-money", headers=lina, json={"id_compte": compte["id_compte"]})
+    client.post(f"/api/paiements/{resa['id_paiement']}/simulation-operateur", headers=lina, json={"resultat": "refuse"})
+    assert client.get("/api/moi/reservations", headers=lina).json()[0]["etat"] == "a_confirmer"
+    init = client.post(f"/api/paiements/{resa['id_paiement']}/mobile-money", headers=lina,
+                       json={"id_compte": compte["id_compte"]}).json()
+    assert "MTN Mobile Money" in init["message"]
+    client.post(f"/api/paiements/{resa['id_paiement']}/simulation-operateur", headers=lina, json={"resultat": "valide"})
+    trajet = client.get("/api/moi/reservations", headers=lina).json()[0]
+    assert trajet["etat"] == "confirme" and trajet["reference"].startswith("MBR-")
+    assert "payé" in client.get("/api/moi/notifications", headers=kevin).json()[0]["message"]
+
+    # Renoncer : place libérée, paiement remboursé, demande rouverte.
+    r = client.post(f"/api/moi/reservations/{resa['id_reservation']}/annulation", headers=lina).json()
+    assert r["paiement"] == "rembourse"
+    assert client.get("/api/moi/reservations", headers=lina).json()[0]["etat"] == "annule"
+    assert client.get("/api/moi/conducteur/equipage", headers=kevin).json()["arrets"] == []
+    assert sql("SELECT statut FROM demande WHERE id_demande = %s", (id_demande,))[0]["statut"] == "ouverte"

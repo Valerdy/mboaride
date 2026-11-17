@@ -9,6 +9,7 @@ import '../features/children/presentation/children_screen.dart';
 import '../features/driver/presentation/driver_shell.dart';
 import '../features/driver/presentation/vehicle_screen.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
+import '../features/payment/presentation/my_trips_screen.dart';
 import '../features/preferences/presentation/preferences_screen.dart';
 import '../services/auth_service.dart';
 import 'registration_screen.dart';
@@ -146,6 +147,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  _buildServiceTile(
+                    icon: Icons.event_seat_rounded,
+                    title: 'Mes trajets',
+                    subtitle: 'Trajets à confirmer (paiement) et trajets confirmés',
+                    onTap: () => _open(MyTripsScreen(repository: AppServices.payments)),
+                  ),
+                  const SizedBox(height: 10),
                   _buildServiceTile(
                     icon: Icons.drive_eta_rounded,
                     title: 'Espace conducteur',

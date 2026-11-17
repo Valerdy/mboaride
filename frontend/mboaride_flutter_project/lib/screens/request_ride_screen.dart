@@ -12,6 +12,7 @@ import '../features/driver/presentation/driver_shell.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
 import '../features/offers/presentation/my_requests_screen.dart';
 import '../features/offers/presentation/offers_screen.dart';
+import '../features/payment/presentation/my_trips_screen.dart';
 import '../features/preferences/domain/preferences.dart';
 import '../features/preferences/presentation/preferences_screen.dart';
 import '../features/ride_request/data/ride_request_repository.dart';
@@ -347,7 +348,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
         context,
         MaterialPageRoute(builder: (_) => OffersScreen(repository: offers, request: created)),
       );
-      if (booked == true && mounted) _showSnack('Trajet confirmé. Bon voyage !');
+      if (booked == true && mounted) _push(MyTripsScreen(repository: AppServices.payments));
     } on ApiException catch (e) {
       if (mounted) _showSnack(e.message, isError: true);
     }
@@ -417,6 +418,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                 title: const Text('Trajet urbain (Douala)', style: TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () => Navigator.pop(context),
               ),
+              _drawerItem(Icons.event_seat_rounded, 'Mes trajets (à confirmer, confirmés)',
+                  MyTripsScreen(repository: AppServices.payments)),
               _drawerItem(Icons.receipt_long_rounded, 'Mes demandes et offres', _myRequests()),
               _drawerItem(Icons.tune_rounded, 'Mes exigences de confort',
                   PreferencesScreen(repository: AppServices.preferences)),
