@@ -2,7 +2,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../core/auth_session.dart';
 import '../services/auth_service.dart';
+import 'driver_agreement_screen.dart';
+import 'my_children_screen.dart';
+import 'intercity_trip_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String? initialCompany;
@@ -31,6 +35,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = false;
   XFile? _pickedImage;
 
+  static const Color primaryGreen = Color(0xFF0B6647);
+  static const Color darkGreen = Color(0xFF074731);
+  static const Color softGreen = Color(0xFFE6F2ED);
+  static const Color bgBeige = Color(0xFFF6F5F0);
+
   @override
   void initState() {
     super.initState();
@@ -40,7 +49,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadProfile();
   }
 
-  // Sélection de l'image depuis la galerie ou l'appareil photo
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _companyController.dispose();
+    _vehicleModelController.dispose();
+    _plateController.dispose();
+    super.dispose();
+  }
+
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(
@@ -56,7 +73,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadProfile() async {
     final profile = await _authService.getProfile();
-    if (profile != null) {
+    if (profile != null && mounted) {
       setState(() {
         if (profile['full_name'] != null) _fullNameController.text = profile['full_name'];
         if (profile['company'] != null && _companyController.text.isEmpty) {
@@ -75,23 +92,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'vehicle_brand_model': _vehicleModelController.text,
       'vehicle_plate': _plateController.text,
     });
+    if (!mounted) return;
     setState(() => _isLoading = false);
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(success ? 'Profil enregistré avec succès !' : 'Erreur lors de la sauvegarde')),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success ? 'Profil enregistré avec succès !' : 'Erreur lors de la sauvegarde'),
+        backgroundColor: success ? primaryGreen : Colors.red.shade700,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).primaryColor;
+    final currentToken = AuthSession.accessToken ?? '';
 
     return Scaffold(
+      backgroundColor: bgBeige,
       appBar: AppBar(
         title: const Text('Mon profil', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: primaryColor,
+        backgroundColor: primaryGreen,
+        foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
       ),
@@ -130,8 +151,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     right: 0,
                     child: Container(
                       padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: primaryColor,
+                      decoration: const BoxDecoration(
+                        color: primaryGreen,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(Icons.edit, color: Colors.white, size: 16),
@@ -154,10 +175,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 14),
 
-            // Champ Entreprise (ÉDITABLE PAR L'UTILISATEUR)
+            // Champ Entreprise
             TextField(
               controller: _companyController,
-              readOnly: false, // Modification autorisée
+              readOnly: false,
               decoration: InputDecoration(
                 labelText: 'Nom de l\'entreprise',
                 hintText: 'Entrez le nom de votre entreprise',
@@ -180,7 +201,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: ChoiceChip(
                     label: const Text('Passager'),
                     selected: _selectedRole == UserRole.passager,
-                    selectedColor: primaryColor,
+                    selectedColor: primaryGreen,
                     labelStyle: TextStyle(color: _selectedRole == UserRole.passager ? Colors.white : Colors.black),
                     onSelected: (selected) => setState(() => _selectedRole = UserRole.passager),
                   ),
@@ -190,7 +211,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: ChoiceChip(
                     label: const Text('Conducteur'),
                     selected: _selectedRole == UserRole.conducteur,
-                    selectedColor: primaryColor,
+                    selectedColor: primaryGreen,
                     labelStyle: TextStyle(color: _selectedRole == UserRole.conducteur ? Colors.white : Colors.black),
                     onSelected: (selected) => setState(() => _selectedRole = UserRole.conducteur),
                   ),
@@ -200,7 +221,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   child: ChoiceChip(
                     label: const Text('Les deux'),
                     selected: _selectedRole == UserRole.lesDeux,
-                    selectedColor: primaryColor,
+                    selectedColor: primaryGreen,
                     labelStyle: TextStyle(color: _selectedRole == UserRole.lesDeux ? Colors.white : Colors.black),
                     onSelected: (selected) => setState(() => _selectedRole = UserRole.lesDeux),
                   ),
@@ -244,7 +265,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _saveProfile,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryColor,
+                  backgroundColor: primaryGreen,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
@@ -254,6 +275,103 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     : const Text('Enregistrer', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ),
+
+            // --- NOUVELLE SECTION : SERVICES & ACTIVITÉS MBOARIDE ---
+            const SizedBox(height: 28),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Services & Activités MboaRide',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: darkGreen),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            _buildServiceTile(
+              icon: Icons.verified_user_rounded,
+              title: 'Devenir conducteur',
+              subtitle: 'Déposer vos documents et activer votre agrément',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DriverAgreementScreen(token: currentToken),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            _buildServiceTile(
+              icon: Icons.school_rounded,
+              title: 'Mes enfants (Trajets scolaires)',
+              subtitle: 'Gérer les élèves autorisés et les alertes départ/arrivée',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MyChildrenScreen(token: currentToken),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            _buildServiceTile(
+              icon: Icons.directions_car_filled_rounded,
+              title: 'Voyage interurbain (Douala → Yaoundé)',
+              subtitle: 'Publier ou gérer un trajet longue distance',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => IntercityTripScreen(token: currentToken),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildServiceTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2)),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: softGreen,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: primaryGreen, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right_rounded, color: primaryGreen),
           ],
         ),
       ),

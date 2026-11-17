@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:intl_phone_field/intl_phone_field.dart';
-import 'package:pinput/pinput.dart';
+import 'package:flutter/services.dart';
 import '../services/auth_service.dart';
 import 'request_ride_screen.dart';
-import '../core/auth_session.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -14,249 +12,570 @@ class RegistrationScreen extends StatefulWidget {
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
   final _authService = AuthService();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _otpController = TextEditingController();
 
-  String _phoneNumber = '';
-  bool _isPhoneSelected = false;
-  bool _positionAccepted = false;
+  // Contrôleurs Inscription
+  final _nameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+
+  // 6 contrôleurs et focus nodes pour les 6 cases du code OTP (comme sur la maquette)
+  final List<TextEditingController> _otpCtrls =
+  List.generate(6, (_) => TextEditingController());
+  final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
+
+  // Contrôleurs Connexion ("Déjà inscrit ? Se connecter")
+  final _loginIdCtrl = TextEditingController();
+  final _loginPassCtrl = TextEditingController();
+
+  bool _isLoginMode = false;
   bool _isLoading = false;
-  String? _detectedCompany;
-  String? _savedToken; // Stocke le token si renvoyé dès l'étape register
+  bool _obscurePassword = true;
+  bool _acceptLocationSharing = false;
+  String? _recognizedCompany;
+  String _normalizedPhoneForVerify = '';
 
-  void _checkEmailDomain(String email) {
-    if (email.contains('@')) {
-      final domain = email.split('@').last;
-      if (domain == 'entreprise.cm') {
-        setState(() {
-          _detectedCompany = 'Entreprise';
-        });
+  // Couleurs exactes de votre maquette
+  static const Color headerGreen = Color(0xFF0E6B4B);
+  static const Color bgCream = Color(0xFFF3F2ED);
+  static const Color borderGrey = Color(0xFFD5D4CE);
+  static const Color textDark = Color(0xFF2B2D2C);
+  static const Color textMuted = Color(0xFF6B6E6C);
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl.addListener(_detectCompanyFromEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.removeListener(_detectCompanyFromEmail);
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    _phoneCtrl.dispose();
+    _passwordCtrl.dispose();
+    _loginIdCtrl.dispose();
+    _loginPassCtrl.dispose();
+    for (final c in _otpCtrls) {
+      c.dispose();
+    }
+    for (final f in _otpFocusNodes) {
+      f.dispose();
+    }
+    super.dispose();
+  }
+
+  // Détection automatique du cercle d'entreprise à partir du domaine email
+  void _detectCompanyFromEmail() {
+    final email = _emailCtrl.text.trim();
+    if (email.contains('@') && email.split('@').last.contains('.')) {
+      final domain = email.split('@').last.split('.').first;
+      const publicDomains = {'gmail', 'yahoo', 'hotmail', 'outlook', 'icloud'};
+      if (domain.isNotEmpty && !publicDomains.contains(domain.toLowerCase())) {
+        final formatted = domain[0].toUpperCase() + domain.substring(1);
+        if (_recognizedCompany != formatted) {
+          setState(() => _recognizedCompany = formatted);
+        }
         return;
       }
     }
-    setState(() {
-      _detectedCompany = null;
-    });
+    if (_recognizedCompany != null) {
+      setState(() => _recognizedCompany = null);
+    }
   }
 
-  String get _currentIdentifier =>
-      _isPhoneSelected ? _phoneNumber : _emailController.text.trim();
+  String get _fullOtpCode => _otpCtrls.map((c) => c.text.trim()).join();
 
-  Future<void> _handleSendCode() async {
-    if (_currentIdentifier.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez entrer un email ou numéro valide')),
+  void _showSnack(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade700 : headerGreen,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  void _navigateToRideRequest(String token) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RequestRideScreen(token: token),
+      ),
+    );
+  }
+
+  // Étape 1 : Bouton "Recevoir le code" -> crée le compte et envoie le SMS OTP
+  Future<void> _handleReceiveCode() async {
+    if (_nameCtrl.text.trim().isEmpty ||
+        _emailCtrl.text.trim().isEmpty ||
+        _phoneCtrl.text.trim().isEmpty ||
+        _passwordCtrl.text.length < 6) {
+      _showSnack(
+        'Renseignez votre nom, email, téléphone et un mot de passe (6 car. min.)',
+        isError: true,
       );
       return;
     }
 
     setState(() => _isLoading = true);
-    final res = await _authService.register(
-      identifier: _currentIdentifier,
-      password: _passwordController.text.isNotEmpty ? _passwordController.text : "Motdepasse123",
-      fullName: "Utilisateur",
-    );
-    setState(() => _isLoading = false);
+    try {
+      final result = await _authService.registerWithDetails(
+        fullName: _nameCtrl.text,
+        email: _emailCtrl.text,
+        phone: _phoneCtrl.text,
+        password: _passwordCtrl.text,
+      );
 
-    if (!mounted) return;
+      _normalizedPhoneForVerify =
+          (result['phone'] as String?) ?? _phoneCtrl.text.trim();
 
-    if (res['statusCode'] == 201 || res['statusCode'] == 200 || res['statusCode'] == 409) {
-      // Sauvegarde du token s'il est déjà présent dans la réponse de register
-      final body = res['body'];
-      if (body is Map) {
-        _savedToken = body['token'] ?? body['access_token'];
+      final devCode = result['devOtp']?.toString();
+      if (devCode != null && devCode.length == 6) {
+        // Pré-remplissage pratique en dev ou affichage dans la notification
+        _showSnack('Code OTP envoyé par SMS au $_normalizedPhoneForVerify (Test : $devCode)');
+      } else {
+        _showSnack('Code à 6 chiffres envoyé par SMS au $_normalizedPhoneForVerify');
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Code OTP envoyé !')),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['body']['error'] ?? res['body']['detail'] ?? 'Erreur lors de l’envoi')),
-      );
+      if (mounted) {
+        _otpFocusNodes[0].requestFocus();
+      }
+    } catch (e) {
+      _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _handleVerify() async {
-    if (_otpController.text.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez entrer le code à 6 chiffres')),
+  // Étape 2 : Bouton "Vérifier" -> valide l'OTP SMS + consentement GPS et ouvre la demande de trajet
+  Future<void> _handleVerifyOtp() async {
+    final code = _fullOtpCode;
+    if (code.length != 6) {
+      _showSnack('Veuillez saisir les 6 chiffres du code reçu par SMS', isError: true);
+      return;
+    }
+    if (!_acceptLocationSharing) {
+      _showSnack('Veuillez accepter le partage de position pendant un trajet', isError: true);
+      return;
+    }
+
+    final phoneToUse = _normalizedPhoneForVerify.isNotEmpty
+        ? _normalizedPhoneForVerify
+        : _phoneCtrl.text.trim();
+
+    setState(() => _isLoading = true);
+    try {
+      final token = await _authService.verifySmsOtp(
+        phone: phoneToUse,
+        code: code,
       );
+      if (!mounted) return;
+      _navigateToRideRequest(token);
+    } catch (e) {
+      _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Connexion directe ("Déjà inscrit ? Se connecter")
+  Future<void> _handleLogin() async {
+    if (_loginIdCtrl.text.trim().isEmpty || _loginPassCtrl.text.isEmpty) {
+      _showSnack('Veuillez saisir votre email/téléphone et votre mot de passe', isError: true);
       return;
     }
 
     setState(() => _isLoading = true);
-    final res = await _authService.verifyOtp(
-      identifier: _currentIdentifier,
-      code: _otpController.text.trim(),
-    );
-    setState(() => _isLoading = false);
-
-    if (!mounted) return;
-
-    if (res['statusCode'] == 200 || res['statusCode'] == 201) {
-      // Récupération du token JWT depuis la réponse verifyOtp (ou fallback sur _savedToken)
-      final body = res['body'];
-      final String token = (body is Map ? (body['token'] ?? body['access_token']) : null) ?? _savedToken ?? '';
-
-      AuthSession.accessToken = token.isEmpty ? null : token;
-
-      // Redirection directe vers la page RequestRideScreen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => RequestRideScreen(token: token),
-        ),
+    try {
+      final res = await _authService.loginWithCredentials(
+        identifier: _loginIdCtrl.text,
+        password: _loginPassCtrl.text,
       );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['body']['error'] ?? res['body']['detail'] ?? 'Code OTP invalide')),
-      );
+
+      if (res['requiresOtp'] == true) {
+        setState(() {
+          _isLoginMode = false;
+          _normalizedPhoneForVerify = res['phone'] as String;
+          _phoneCtrl.text = _normalizedPhoneForVerify;
+        });
+        _showSnack('Compte non vérifié : saisissez le code SMS reçu.');
+        return;
+      }
+
+      final token = res['token'] as String;
+      if (!mounted) return;
+      _navigateToRideRequest(token);
+    } catch (e) {
+      _showSnack(e.toString().replaceFirst('Exception: ', ''), isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).primaryColor;
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Créer mon compte', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: primaryColor,
-        elevation: 0,
-        centerTitle: true,
+      backgroundColor: bgCream,
+      body: Column(
+        children: [
+          // En-tête vert fidèle à la maquette
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.only(top: 52, bottom: 24, left: 22, right: 22),
+            decoration: const BoxDecoration(
+              color: headerGreen,
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(24),
+                bottomRight: Radius.circular(24),
+              ),
+            ),
+            child: Text(
+              _isLoginMode ? 'Se connecter' : 'Créer mon compte',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 23,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              child: _isLoginMode ? _buildLoginBody() : _buildRegisterBody(),
+            ),
+          ),
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 10),
-            // Champ Email professionnel
-            TextField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              onChanged: (val) {
-                _checkEmailDomain(val);
-                if (val.isNotEmpty) setState(() => _isPhoneSelected = false);
-              },
-              decoration: InputDecoration(
-                labelText: 'Email professionnel ou téléphone',
-                hintText: 'prenom.nom@entreprise.cm',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Champ Téléphone +237
-            IntlPhoneField(
-              initialCountryCode: 'CM',
-              decoration: InputDecoration(
-                labelText: 'Numéro de téléphone',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onChanged: (phone) {
-                _phoneNumber = phone.completeNumber;
-                if (_phoneNumber.isNotEmpty) setState(() => _isPhoneSelected = true);
-              },
-            ),
-            const SizedBox(height: 12),
+    );
+  }
 
-            // Bouton Recevoir le code
-            ElevatedButton(
-              onPressed: _isLoading ? null : _handleSendCode,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-              ),
-              child: _isLoading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('Recevoir le code', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 24),
-
-            const Text('Code à 6 chiffres reçu par SMS ou email', style: TextStyle(color: Colors.grey, fontSize: 13)),
-            const SizedBox(height: 10),
-
-            // Cases pour Code à 6 chiffres
-            Pinput(
-              length: 6,
-              controller: _otpController,
-              defaultPinTheme: PinTheme(
-                width: 45,
-                height: 50,
-                textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Encadré Domaine reconnu
-            if (_detectedCompany != null)
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Text(
-                  'Domaine reconnu : vous rejoignez automatiquement le cercle de [$_detectedCompany]',
-                  style: const TextStyle(fontSize: 13, color: Colors.black87),
-                ),
-              ),
-            const SizedBox(height: 16),
-
-            // Checkbox position
-            Row(
-              children: [
-                Checkbox(
-                  value: _positionAccepted,
-                  activeColor: primaryColor,
-                  onChanged: (val) => setState(() => _positionAccepted = val ?? false),
-                ),
-                const Expanded(
-                  child: Text(
-                    "J'accepte le partage de ma position pendant un trajet",
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Bouton Vérifier
-            ElevatedButton(
-              onPressed: _isLoading ? null : _handleVerify,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-              ),
-              child: const Text('Vérifier', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 16),
-
-            // Lien connexion
-            Center(
-              child: TextButton(
-                onPressed: () {},
-                child: const Text('Déjà inscrit ? Se connecter', style: TextStyle(color: Colors.grey)),
-              ),
-            ),
-          ],
+  Widget _buildRegisterBody() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Informations personnelles & professionnelles',
+          style: TextStyle(fontSize: 12.5, color: textMuted, fontWeight: FontWeight.w500),
         ),
+        const SizedBox(height: 10),
+
+        // 1. Champ ajouté : Nom complet
+        _buildWhiteField(
+          controller: _nameCtrl,
+          hintText: 'Nom complet (ex: Jean Dupont)',
+          keyboardType: TextInputType.name,
+        ),
+        const SizedBox(height: 10),
+
+        // 2. Champ maquette : Email professionnel
+        _buildWhiteField(
+          controller: _emailCtrl,
+          hintText: 'prenom.nom@entreprise.cm',
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 10),
+
+        // 3. Champ maquette : Numéro de téléphone (+237)
+        _buildWhiteField(
+          controller: _phoneCtrl,
+          hintText: '+237 6 •• •• •• ••',
+          keyboardType: TextInputType.phone,
+        ),
+        const SizedBox(height: 10),
+
+        // 4. Champ ajouté : Mot de passe
+        _buildWhiteField(
+          controller: _passwordCtrl,
+          hintText: 'Mot de passe (6 caractères min.)',
+          obscureText: _obscurePassword,
+          suffixIcon: IconButton(
+            icon: Icon(
+              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+              color: textMuted,
+              size: 20,
+            ),
+            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Bouton "Recevoir le code" (fidèle à la maquette)
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _handleReceiveCode,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: headerGreen,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: _isLoading
+                ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+            )
+                : const Text(
+              'Recevoir le code',
+              style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // Libellé OTP maquette
+        const Text(
+          'Code à 6 chiffres reçu par SMS ou email',
+          style: TextStyle(fontSize: 12.5, color: textMuted, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 8),
+
+        // Les 6 cases OTP carrées arrondies de la maquette
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(6, (index) => _buildOtpDigitBox(index)),
+        ),
+
+        const SizedBox(height: 14),
+
+        // Encadré "Domaine reconnu" de la maquette
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderGrey),
+          ),
+          child: Text(
+            _recognizedCompany != null
+                ? 'Domaine reconnu : vous rejoignez automatiquement le cercle de $_recognizedCompany'
+                : 'Domaine reconnu : vous rejoignez automatiquement le cercle de [Entreprise]',
+            style: const TextStyle(fontSize: 12.5, color: textDark, height: 1.35),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // Case à cocher "J'accepte le partage de ma position pendant un trajet"
+        InkWell(
+          onTap: () => setState(() => _acceptLocationSharing = !_acceptLocationSharing),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: Checkbox(
+                  value: _acceptLocationSharing,
+                  activeColor: headerGreen,
+                  side: const BorderSide(color: textMuted, width: 1.3),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  onChanged: (val) => setState(() => _acceptLocationSharing = val ?? false),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  "J'accepte le partage de ma position pendant un trajet",
+                  style: TextStyle(fontSize: 12, color: textDark),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // Bouton "Vérifier" (fidèle à la maquette)
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _handleVerifyOtp,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: headerGreen,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text(
+              'Vérifier',
+              style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // Lien "Déjà inscrit ? Se connecter" en bas à gauche comme sur la maquette
+        GestureDetector(
+          onTap: () => setState(() => _isLoginMode = true),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'Déjà inscrit ? Se connecter',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoginBody() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Email professionnel ou numéro de téléphone',
+          style: TextStyle(fontSize: 12.5, color: textMuted, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 10),
+        _buildWhiteField(
+          controller: _loginIdCtrl,
+          hintText: 'prenom.nom@entreprise.cm ou +237 6...',
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 12),
+        _buildWhiteField(
+          controller: _loginPassCtrl,
+          hintText: 'Votre mot de passe',
+          obscureText: _obscurePassword,
+          suffixIcon: IconButton(
+            icon: Icon(
+              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+              color: textMuted,
+              size: 20,
+            ),
+            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+          ),
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _handleLogin,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: headerGreen,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: _isLoading
+                ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+            )
+                : const Text(
+              'Se connecter',
+              style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        GestureDetector(
+          onTap: () => setState(() => _isLoginMode = false),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'Pas encore de compte ? Créer mon compte',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWhiteField({
+    required TextEditingController controller,
+    required String hintText,
+    TextInputType keyboardType = TextInputType.text,
+    bool obscureText = false,
+    Widget? suffixIcon,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      obscureText: obscureText,
+      style: const TextStyle(fontSize: 14, color: textDark),
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: const TextStyle(color: textMuted, fontSize: 13.5),
+        filled: true,
+        fillColor: Colors.white,
+        suffixIcon: suffixIcon,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: borderGrey),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: headerGreen, width: 1.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOtpDigitBox(int index) {
+    return SizedBox(
+      width: 46,
+      height: 50,
+      child: TextField(
+        controller: _otpCtrls[index],
+        focusNode: _otpFocusNodes[index],
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.center,
+        maxLength: 1,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: textDark,
+        ),
+        decoration: InputDecoration(
+          counterText: '',
+          hintText: '•',
+          hintStyle: const TextStyle(color: textDark, fontSize: 18),
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: EdgeInsets.zero,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: borderGrey),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: headerGreen, width: 1.5),
+          ),
+        ),
+        onChanged: (value) {
+          if (value.isNotEmpty && index < 5) {
+            _otpFocusNodes[index + 1].requestFocus();
+          } else if (value.isEmpty && index > 0) {
+            _otpFocusNodes[index - 1].requestFocus();
+          }
+        },
       ),
     );
   }
