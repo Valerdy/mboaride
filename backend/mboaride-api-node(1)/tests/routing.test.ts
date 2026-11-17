@@ -64,6 +64,13 @@ describe("routes d'itinéraire", () => {
     expect(r.body.geometry.type).toBe("LineString");
   });
 
+  it("passe par les étapes demandées, sur le réseau routier", async () => {
+    const r = await post("/routes/route", { from: LOGPOM, via: [AKWA], to: BONANJO });
+    expect(r.status).toBe(200);
+    expect(r.body.estimated).toBe(false);
+    expect(r.body.legs).toHaveLength(2);
+  });
+
   it("peut omettre le tracé", async () => {
     const r = await post("/routes/route", { from: LOGPOM, to: BONANJO, include_geometry: false });
     expect(r.body.geometry).toBeNull();
