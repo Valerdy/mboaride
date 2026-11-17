@@ -1,131 +1,128 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // <-- Ajoutez cette ligne ici
 import 'package:http/http.dart' as http;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../core/app_config.dart';
+import '../core/auth_session.dart';
+
+typedef JsonMap = Map<String, dynamic>;
 
 class AuthService {
-  // Pour l'émulateur Android, 10.0.2.2 pointe sur localhost de votre PC
-  static String get baseUrl {
-    if (kIsWeb) {
-      // Pour Chrome / Web
-      return 'http://localhost:8000/auth';
-    } else {
-      // Pour l'Émulateur Android
-      return 'http://10.0.2.2:3000/auth';
-    }
-  }  final _storage = const FlutterSecureStorage();
-
-  // Inscription (Email ou Téléphone)
-  Future<Map<String, dynamic>> register({
-    required String identifier,
-    required String password,
+  // 1. Création de compte (Nom, Email, Téléphone, Mot de passe) -> déclenche le SMS OTP
+  Future<JsonMap> registerWithDetails({
     required String fullName,
+    required String email,
+    required String phone,
+    required String password,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/register'),
+    final res = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/auth/register'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
-        'identifier': identifier,
+        'fullName': fullName.trim(),
+        'email': email.trim(),
+        'phone': phone.trim(),
         'password': password,
-        'full_name': fullName,
       }),
     );
 
-    return {
-      'statusCode': response.statusCode,
-      'body': jsonDecode(response.body),
-    };
+    final data = jsonDecode(res.body) as JsonMap;
+    if (res.statusCode == 201 || res.statusCode == 200) {
+      return data;
+    }
+    throw Exception(data['error'] ?? "Erreur lors de la création du compte");
   }
 
-  // Vérification OTP (Code à 6 chiffres)
-  Future<Map<String, dynamic>> verifyOtp({
-    required String identifier,
+  // 2. Vérification du code OTP reçu par SMS
+  Future<String> verifySmsOtp({
+    required String phone,
     required String code,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/verify'),
+    final res = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/auth/verify-otp'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
-        'identifier': identifier,
-        'code': code,
+        'phone': phone.trim(),
+        'code': code.trim(),
       }),
     );
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['access_token'] != null) {
-        await _storage.write(key: 'access_token', value: data['access_token']);
-      }
-      if (data['refresh_token'] != null) {
-        await _storage.write(key: 'refresh_token', value: data['refresh_token']);
-      }
+    final data = jsonDecode(res.body) as JsonMap;
+    if (res.statusCode == 200 && data['token'] != null) {
+      final token = data['token'] as String;
+      AuthSession.accessToken = token;
+      return token;
     }
-
-    return {
-      'statusCode': response.statusCode,
-      'body': jsonDecode(response.body),
-    };
+    throw Exception(data['error'] ?? 'Code OTP invalide ou expiré');
   }
 
-  // Connexion
-  Future<Map<String, dynamic>> login({
+  // 3. Renvoyer le code OTP par SMS
+  Future<JsonMap> resendSmsOtp(String phone) async {
+    final res = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/auth/resend-otp'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'phone': phone.trim()}),
+    );
+    final data = jsonDecode(res.body) as JsonMap;
+    if (res.statusCode == 200) return data;
+    throw Exception(data['error'] ?? "Impossible de renvoyer le SMS");
+  }
+
+  // 4. Connexion classique (Email ou Téléphone + Mot de passe)
+  Future<JsonMap> loginWithCredentials({
     required String identifier,
     required String password,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/login'),
+    final res = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/auth/login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
-        'identifier': identifier,
+        'identifier': identifier.trim(),
         'password': password,
       }),
     );
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      await _storage.write(key: 'access_token', value: data['access_token']);
-      await _storage.write(key: 'refresh_token', value: data['refresh_token']);
+    final data = jsonDecode(res.body) as JsonMap;
+    if (res.statusCode == 200 && data['token'] != null) {
+      AuthSession.accessToken = data['token'] as String;
+      return data;
     }
-
-    return {
-      'statusCode': response.statusCode,
-      'body': jsonDecode(response.body),
-    };
+    if (res.statusCode == 403 && data['requiresOtp'] == true) {
+      return data;
+    }
+    throw Exception(data['error'] ?? 'Identifiants incorrects');
   }
 
-  // Obtenir le profil (/me)
-  Future<Map<String, dynamic>?> getProfile() async {
-    final token = await _storage.read(key: 'access_token');
-    if (token == null) return null;
-
-    final response = await http.get(
-      Uri.parse('$baseUrl/me'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    }
+  // 5. Récupération du profil utilisateur
+  Future<JsonMap?> getProfile() async {
+    final token = AuthSession.accessToken;
+    if (token == null || token.isEmpty) return null;
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/auth/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as JsonMap;
+      }
+    } catch (_) {}
     return null;
   }
 
-  // Mise à jour du profil (Création de profil conducteur/passager)
-  Future<bool> updateProfile(Map<String, dynamic> profileData) async {
-    final token = await _storage.read(key: 'access_token');
-    if (token == null) return false;
-
-    final response = await http.put(
-      Uri.parse('$baseUrl/me'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode(profileData),
-    );
-
-    return response.statusCode == 200;
+  // 6. Mise à jour du profil utilisateur
+  Future<bool> updateProfile(JsonMap payload) async {
+    final token = AuthSession.accessToken;
+    if (token == null || token.isEmpty) return false;
+    try {
+      final res = await http.put(
+        Uri.parse('${AppConfig.apiBaseUrl}/auth/profile'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(payload),
+      );
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 }
