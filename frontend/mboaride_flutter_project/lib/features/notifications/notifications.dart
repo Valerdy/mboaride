@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
 import '../../core/mboa_theme.dart';
+import '../../core/system_notifications.dart';
 
 /// Notifications dans l'application : retard du conducteur, trajet annulé, course démarrée,
 /// fin de course à valider, paiement reçu, gains versés au portefeuille...
@@ -43,7 +44,24 @@ class AppNotification {
 
   /// Une alerte qui demande d'agir vite (retard, annulation) : bandeau orange ou rouge.
   bool get urgent => type == 'retard' || type == 'annulation';
+
+  /// Titre de la notification du téléphone.
+  String get title => switch (type) {
+    'retard' => 'Retard du conducteur',
+    'annulation' => 'Trajet annulé',
+    'reaffectation' => 'Nouveau conducteur',
+    'offres' => 'Offres de trajet',
+    'paiement' => 'Paiement',
+    'remboursement' => 'Remboursement',
+    'versement' || 'portefeuille' => 'Portefeuille',
+    'course' => 'Course en cours',
+    'fin_course' => 'Fin de course',
+    _ => 'MboaRide',
+  };
 }
+
+/// Durée d'affichage du bandeau dans l'application.
+const Duration notificationBannerDuration = Duration(seconds: 5);
 
 class NotificationSummary {
   const NotificationSummary({required this.unread, this.latest});
@@ -143,11 +161,16 @@ class _NotificationBellState extends State<NotificationBell> {
   Timer? _timer;
   int _unread = 0;
   int? _lastSeenId;
+  bool _initialized = false;
+
+  /// Notifications déjà annoncées : deux cloches ouvertes (accueil passager et espace
+  /// conducteur) n'annoncent pas deux fois la même.
+  static final Set<int> _announced = {};
 
   @override
   void initState() {
     super.initState();
-    _refresh(first: true);
+    _refresh();
     _timer = Timer.periodic(widget.interval, (_) => _refresh());
   }
 
@@ -157,27 +180,35 @@ class _NotificationBellState extends State<NotificationBell> {
     super.dispose();
   }
 
-  Future<void> _refresh({bool first = false}) async {
+  Future<void> _refresh() async {
     try {
       final s = await widget.repository.summary();
       if (!mounted) return;
       final latest = s.latest;
-      final isNew = latest != null && !latest.read && _lastSeenId != null && latest.id != _lastSeenId;
+      // Au premier relevé, on ne fait que noter la plus récente : seules les suivantes
+      // sont annoncées.
+      final isNew = _initialized && latest != null && !latest.read && latest.id != _lastSeenId;
       setState(() {
         _unread = s.unread;
         if (latest != null) _lastSeenId = latest.id;
+        _initialized = true;
       });
-      if (isNew && !first) _announce(latest);
+      if (isNew && _announced.add(latest.id)) _announce(latest);
     } on ApiException {
       // hors ligne ou session expirée : la cloche reste telle quelle
     }
   }
 
   void _announce(AppNotification n) {
+    // Notification du téléphone : visible aussi quand l'application est en arrière-plan.
+    unawaited(SystemNotifications.show(id: n.id, title: n.title, body: n.message));
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 6),
+        // Le bandeau se ferme seul après 5 s, même avec son bouton « Voir » (sans `persist`,
+        // Flutter garde affiché un bandeau qui a une action).
+        duration: notificationBannerDuration,
+        persist: false,
         backgroundColor: n.urgent ? const Color(0xFFB8580B) : MboaColors.green,
         content: Row(
           children: [

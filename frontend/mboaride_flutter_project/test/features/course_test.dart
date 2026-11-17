@@ -114,7 +114,8 @@ void main() {
     await _settle(tester);
 
     expect(find.text('Fin de course validée'), findsOneWidget);
-    expect(find.textContaining('Armand sera payé dès que Paul aura validé'), findsOneWidget);
+    // Plus de phrase sur le paiement du conducteur sur cet écran.
+    expect(find.textContaining('sera payé'), findsNothing);
     expect(repository.lastRating, 5);
     expect(repository.lastComment, 'Ponctuel et prudent');
 
@@ -212,6 +213,11 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
     await tester.pump();
     expect(find.text('Votre conducteur a annulé le trajet du 18/11.'), findsOneWidget);
+    // Le bandeau se ferme seul après 5 secondes, malgré son bouton « Voir ».
+    for (var i = 0; i < 14; i++) {
+      await tester.pump(const Duration(milliseconds: 500)); // entrée, 5 s d'affichage, sortie
+    }
+    expect(find.text('Votre conducteur a annulé le trajet du 18/11.'), findsNothing);
     // Fin du test : on retire la cloche pour arrêter son minuteur.
     await tester.pumpWidget(const SizedBox());
   });

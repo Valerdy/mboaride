@@ -217,7 +217,7 @@ def arrivee(body: Jour, u: dict = Depends(utilisateur_courant),
             if p["fin_validee_le"] is None:
                 notifier(conn, p["id_demandeur"], "fin_course",
                          f"Vous êtes arrivés à {t['arrivee_libelle']} : validez la fin de la course dans "
-                         f"Mes trajets et notez {u['prenom']}. Il sera payé quand tout l'équipage aura validé.")
+                         f"Mes trajets et notez {u['prenom']}.")
     return etat_course(conn, t, body.date_trajet)
 
 

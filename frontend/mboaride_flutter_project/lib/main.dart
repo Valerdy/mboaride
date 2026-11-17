@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_services.dart';
 import 'core/auth_session.dart';
 import 'core/mboa_theme.dart';
+import 'core/system_notifications.dart';
 import 'features/driver/presentation/driver_shell.dart';
 import 'screens/registration_screen.dart';
 import 'screens/request_ride_screen.dart';
@@ -16,7 +17,10 @@ import 'services/session.dart';
 const String _start = String.fromEnvironment('START', defaultValue: 'ride');
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   connectApiClientToSession();
+  // Notifications du téléphone : canal et autorisation (sans attendre, l'écran s'ouvre).
+  SystemNotifications.init();
   runApp(const MboarideApp());
 }
 

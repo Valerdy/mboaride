@@ -85,13 +85,6 @@ class _EndOfRideScreenState extends State<EndOfRideScreen> {
 
   List<Widget> _form(RideTracking t) => [
     Text(
-      'Validez la fin de la course avec ${t.driver} : il sera payé quand chaque passager de '
-      "l'équipage l'aura validée.",
-      textAlign: TextAlign.center,
-      style: const TextStyle(color: MboaColors.mutedText, height: 1.4),
-    ),
-    const SizedBox(height: 22),
-    Text(
       'Notez la course et ${t.driver}',
       textAlign: TextAlign.center,
       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
@@ -158,14 +151,6 @@ class _EndOfRideScreenState extends State<EndOfRideScreen> {
           const Text('Fin de course validée', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
           Text('Vous avez donné ${r.rating}/5 à ${r.driver}.'),
-          const SizedBox(height: 6),
-          Text(
-            r.driverPaid
-                ? '${r.driver} a reçu son paiement dans son portefeuille.'
-                : '${r.driver} sera payé dès que ${r.waitingFor.join(', ')} '
-                      '${r.waitingFor.length > 1 ? 'auront' : 'aura'} validé la fin de la course.',
-            style: const TextStyle(color: MboaColors.mutedText),
-          ),
         ],
       ),
     ),
