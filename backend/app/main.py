@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import config, moteur
 from .config import RACINE
 from .db import get_conn
 from .routes import (annulation, banc, demo, eleves, organisation, paiement, preferences,
@@ -37,7 +38,13 @@ WEB = RACINE / "web"
 
 @app.get("/health", tags=["Santé"])
 def health() -> dict:
-    return {"status": "ok"}
+    """État du service, mode de routage et pont d'authentification.
+
+    Utile en démonstration : on voit d'un coup d'œil si les itinéraires viennent du
+    serveur OSRM ou de l'estimateur, et si les jetons de l'API Node sont vérifiables.
+    """
+    return {"status": "ok", "routage": moteur.routage_actif(),
+            "jeton_node": bool(config.SECRET_KEY), "auth_demo": config.DEMO_AUTH}
 
 
 @app.get("/api/demo/utilisateurs", tags=["Démo"])

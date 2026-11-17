@@ -40,11 +40,59 @@ Les tests recréent une base `mboaride_test` avant chaque test, sur le serveur d
 pytest
 ```
 
+## Les deux API ensemble
+
+L'authentification (US01) appartient à l'API Node, qui vit dans `mboaride-api-node(1)/`.
+L'API Python ne l'a pas réécrite : elle vérifie les jetons que Node signe, avec le même
+secret et le même algorithme, et les deux services partagent une seule base PostgreSQL.
+Node y tient ses tables dans le schéma `public`, le métier reste dans `mboaride`, et la
+table `compte_node` dit quel compte Node correspond à quel utilisateur, rapprochement
+fait tout seul sur l'e-mail puis sur le téléphone à la première requête authentifiée.
+
+```bash
+createdb mboaride
+for f in sql/0{1,2,4,5,6,7}*.sql; do psql -v ON_ERROR_STOP=1 -d mboaride -f "$f"; done
+
+export SECRET_KEY="un-secret-partage-de-32-caracteres-minimum"
+
+# API Node, authentification et itinéraires (port 8101)
+cd "mboaride-api-node(1)" && npm install
+DATABASE_URL="postgresql://postgres@127.0.0.1:5432/mboaride" PORT=8101 npm run dev
+
+# API Python, métier et moteur multi-agents (port 8000)
+export MBOARIDE_DSN="host=127.0.0.1 port=5432 user=postgres dbname=mboaride"
+export MBOARIDE_SECRET_KEY="$SECRET_KEY"   # le même que celui de Node
+export MBOARIDE_DEMO_AUTH=0                # refuse l'en-tête X-Utilisateur
+uvicorn app.main:app --reload
+```
+
+Le parcours complet se vérifie en trois appels : `POST /auth/register` puis
+`POST /auth/verify` sur le port 8101 donnent un `access_token`, et ce jeton ouvre
+directement les routes de l'API Python, par exemple `GET /api/moi/demandes`. La route
+`/health` de l'API Python annonce d'ailleurs si le secret est en place et si l'en-tête
+de démonstration est encore accepté.
+
+Pour de vrais itinéraires, lancer le serveur OSRM que l'API Node utilise déjà, puis
+donner son adresse à l'API Python avec `MBOARIDE_OSRM_URL` :
+
+```bash
+docker run -p 5000:5000 osrm/osrm-backend osrm-routed /data/cameroon.osrm
+export MBOARIDE_OSRM_URL="http://localhost:5000"
+```
+
+Les détours sont alors mesurés sur le réseau routier, et l'estimateur devient le repli :
+si le serveur tombe ou répond trop lentement, la négociation continue avec une
+estimation, aucun conducteur n'est écarté pour une panne réseau. Sans cette variable,
+tout reste estimé et déterministe, ce dont les tests et le banc de mesure ont besoin.
+
 ## Variables d'environnement
 
 | Variable | Rôle |
 |---|---|
 | `MBOARIDE_DSN` (ou `DATABASE_URL`) | connexion PostgreSQL de l'API |
+| `MBOARIDE_SECRET_KEY` (ou `SECRET_KEY`) | secret partagé avec l'API Node, pour vérifier ses jetons |
+| `MBOARIDE_DEMO_AUTH` | `0` refuse l'en-tête de démonstration `X-Utilisateur` |
+| `MBOARIDE_OSRM_URL`, `MBOARIDE_OSRM_TIMEOUT_S` | serveur OSRM des itinéraires réels, et son délai limite |
 | `MBOARIDE_TEST_PG` | serveur PostgreSQL des tests |
 | `MBOARIDE_AGENTS` | chemin du dossier `agents/` s'il n'est pas voisin de `backend/` |
 | `MBOARIDE_SMTP_HOST`, `MBOARIDE_SMTP_PORT`, `MBOARIDE_SMTP_USER`, `MBOARIDE_SMTP_PASSWORD` | envoi réel des e-mails d'invitation ; sans elles, l'envoi est simulé et tracé |

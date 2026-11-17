@@ -4,6 +4,8 @@
 -- Les notifications du parent portent sur un élève et, le plus souvent, sur une
 -- réservation précise : on les rattache pour pouvoir afficher le journal d'un élève.
 
+SET search_path TO mboaride;
+
 ALTER TABLE notification DROP CONSTRAINT IF EXISTS notification_type_check;
 ALTER TABLE notification ADD CONSTRAINT notification_type_check
     CHECK (type IN ('annulation', 'reaffectation', 'offres', 'paiement', 'remboursement',

@@ -22,7 +22,7 @@ from app.db import connect  # noqa: E402
 from app.main import app  # noqa: E402
 
 SCRIPTS = ["01_schema.sql", "02_donnees_exemple.sql", "04_sprint2.sql", "05_sprint3.sql",
-           "06_sprint3_eleves.sql"]
+           "06_sprint3_eleves.sql", "07_pont_node.sql"]
 
 
 @pytest.fixture()

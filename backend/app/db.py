@@ -12,7 +12,10 @@ from . import config
 
 def connect() -> psycopg.Connection:
     conn = psycopg.connect(config.DSN, row_factory=dict_row)
-    conn.execute("SET search_path TO mboaride")
+    # Le schéma métier d'abord, puis public : l'API Node pose ses propres tables
+    # (`users`, `refresh_tokens`, ...) dans public quand les deux services partagent
+    # la même base, et le pont d'authentification a besoin de les lire.
+    conn.execute("SET search_path TO mboaride, public")
     return conn
 
 
