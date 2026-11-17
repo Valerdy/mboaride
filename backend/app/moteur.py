@@ -83,6 +83,7 @@ class Trajet:
     confort: frozenset[str]
     peage_fcfa: int
     interurbain: bool
+    prix_min: int = 0       # plancher par passager fixé par le conducteur (écran « Cercles et règles »)
 
 
 @dataclass(frozen=True)
@@ -106,7 +107,7 @@ def driver_from_row(t: dict) -> Trajet:
         depart_min=minutes(t["heure_depart"]), places=t["places_offertes"],
         detour_max_m=round(float(t["detour_max_km"]) * 1000), conso_l100=float(t["conso_l_100km"]),
         confort=frozenset(confort), peage_fcfa=int(t["peage_fcfa"]),
-        interurbain=t["type_trajet"] == "interurbain")
+        interurbain=t["type_trajet"] == "interurbain", prix_min=int(t.get("prix_min_fcfa") or 0))
 
 
 def request_from_row(d: dict) -> Demande:
@@ -170,7 +171,7 @@ def detail_prix(trajet: Trajet, demande: Demande, niveau: int, places_reservees:
     q = quote(POLITIQUE, shared_distance_m=d.shared_distance_m, detour_m=d.detour_m,
               trip_distance_m=d.trip_distance_m, consumption_l_per_100km=trajet.conso_l100,
               tolls=trajet.peage_fcfa if trajet.interurbain else 0, seats_total=trajet.places,
-              seats_booked=places_reservees, seats_requested=1, min_price=0,
+              seats_booked=places_reservees, seats_requested=1, min_price=trajet.prix_min,
               with_commission=niveau == CERCLE_PUBLIC or trajet.interurbain)
     return DetailPrix(round(d.shared_distance_m / 1000, 2), trajet.conso_l100, q,
                       base_km=round((d.shared_distance_m + d.detour_m) / 1000, 2))

@@ -1,131 +1,153 @@
+import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // <-- Ajoutez cette ligne ici
+
 import 'package:http/http.dart' as http;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../core/api_client.dart';
+import '../core/app_config.dart';
+import '../core/auth_session.dart';
+
+typedef JsonMap = Map<String, dynamic>;
+
+/// Inscription et connexion (US01) sur l'API Node, puis profil métier sur l'API Python.
+///
+/// Après chaque connexion réussie, [AuthService] demande à l'API Python le profil de
+/// l'utilisateur (`POST /api/moi/profil`) : il est créé au premier passage à partir du
+/// compte Node, et c'est lui que lisent ensuite tous les écrans (demandes, conducteur...).
 class AuthService {
-  // Pour l'émulateur Android, 10.0.2.2 pointe sur localhost de votre PC
-  static String get baseUrl {
-    if (kIsWeb) {
-      // Pour Chrome / Web
-      return 'http://localhost:8000/auth';
-    } else {
-      // Pour l'Émulateur Android
-      return 'http://10.0.2.2:3000/auth';
-    }
-  }  final _storage = const FlutterSecureStorage();
+  AuthService({http.Client? client, ApiClient? api})
+    : _client = client ?? http.Client(),
+      _api = api ?? ApiClient();
 
-  // Inscription (Email ou Téléphone)
-  Future<Map<String, dynamic>> register({
-    required String identifier,
-    required String password,
+  final http.Client _client;
+  final ApiClient _api;
+
+  static const Duration _timeout = Duration(seconds: 10);
+
+  Future<(int, JsonMap)> _post(String path, JsonMap body) async {
+    try {
+      final res = await _client
+          .post(
+            Uri.parse('${AppConfig.authBaseUrl}/auth$path'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(_timeout);
+      JsonMap data = {};
+      try {
+        final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+        if (decoded is Map<String, dynamic>) data = decoded;
+      } on FormatException {
+        // corps vide ou non JSON
+      }
+      return (res.statusCode, data);
+    } on TimeoutException {
+      throw Exception('Le serveur d\'authentification ne répond pas.');
+    } on http.ClientException {
+      throw Exception(
+        'Impossible de joindre le serveur d\'authentification (${AppConfig.authBaseUrl}).',
+      );
+    }
+  }
+
+  static String _error(JsonMap data, String fallback) =>
+      (data['detail'] ?? data['error'] ?? fallback).toString();
+
+  /// 1. Création du compte : nom, e-mail, téléphone, mot de passe. Un code part par SMS.
+  /// La réponse contient `phone` normalisé et, en démonstration locale, `devOtp`.
+  Future<JsonMap> registerWithDetails({
     required String fullName,
+    required String email,
+    required String phone,
+    required String password,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/register'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'identifier': identifier,
-        'password': password,
-        'full_name': fullName,
-      }),
-    );
-
-    return {
-      'statusCode': response.statusCode,
-      'body': jsonDecode(response.body),
-    };
+    final (status, data) = await _post('/register', {
+      'fullName': fullName.trim(),
+      'email': email.trim(),
+      'phone': phone.trim(),
+      'password': password,
+    });
+    if (status == 201 || status == 200) return data;
+    throw Exception(_error(data, 'Erreur lors de la création du compte'));
   }
 
-  // Vérification OTP (Code à 6 chiffres)
-  Future<Map<String, dynamic>> verifyOtp({
-    required String identifier,
-    required String code,
-  }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/verify'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'identifier': identifier,
-        'code': code,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['access_token'] != null) {
-        await _storage.write(key: 'access_token', value: data['access_token']);
-      }
-      if (data['refresh_token'] != null) {
-        await _storage.write(key: 'refresh_token', value: data['refresh_token']);
-      }
-    }
-
-    return {
-      'statusCode': response.statusCode,
-      'body': jsonDecode(response.body),
-    };
+  /// 2. Vérification du code reçu : ouvre la session et prépare le profil.
+  Future<String> verifySmsOtp({required String phone, required String code}) async {
+    final (status, data) = await _post('/verify-otp', {
+      'phone': phone.trim(),
+      'code': code.trim(),
+    });
+    if (status == 200 && data['token'] != null) return _openSession(data);
+    throw Exception(_error(data, 'Code invalide ou expiré'));
   }
 
-  // Connexion
-  Future<Map<String, dynamic>> login({
+  /// 3. Nouveau code.
+  Future<JsonMap> resendSmsOtp(String phone) async {
+    final (status, data) = await _post('/resend-otp', {'phone': phone.trim()});
+    if (status == 200) return data;
+    throw Exception(_error(data, 'Impossible de renvoyer le code'));
+  }
+
+  /// 4. Connexion par e-mail ou téléphone. Un compte pas encore vérifié reçoit un
+  /// nouveau code : la réponse vaut alors `{requiresOtp: true, phone: ...}`.
+  Future<JsonMap> loginWithCredentials({
     required String identifier,
     required String password,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'identifier': identifier,
-        'password': password,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      await _storage.write(key: 'access_token', value: data['access_token']);
-      await _storage.write(key: 'refresh_token', value: data['refresh_token']);
+    final (status, data) = await _post('/login', {
+      'identifier': identifier.trim(),
+      'password': password,
+    });
+    if (status == 200 && data['token'] != null) {
+      await _openSession(data);
+      return data;
     }
-
-    return {
-      'statusCode': response.statusCode,
-      'body': jsonDecode(response.body),
-    };
+    if (status == 403) {
+      final resent = await resendSmsOtp(identifier);
+      return {'requiresOtp': true, 'phone': identifier.trim(), ...resent};
+    }
+    throw Exception(_error(data, 'Identifiants incorrects'));
   }
 
-  // Obtenir le profil (/me)
-  Future<Map<String, dynamic>?> getProfile() async {
-    final token = await _storage.read(key: 'access_token');
-    if (token == null) return null;
-
-    final response = await http.get(
-      Uri.parse('$baseUrl/me'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    }
-    return null;
+  Future<String> _openSession(JsonMap data) async {
+    final token = data['token'] as String;
+    AuthSession.accessToken = token;
+    AuthSession.refreshToken = data['refresh_token'] as String?;
+    AuthSession.profile = await ensureProfile();
+    return token;
   }
 
-  // Mise à jour du profil (Création de profil conducteur/passager)
-  Future<bool> updateProfile(Map<String, dynamic> profileData) async {
-    final token = await _storage.read(key: 'access_token');
-    if (token == null) return false;
+  /// Profil métier (API Python), créé au premier appel.
+  Future<JsonMap> ensureProfile() async {
+    try {
+      return await _api.post('/api/moi/profil') as JsonMap;
+    } on ApiException catch (error) {
+      throw Exception('Connexion réussie, mais profil indisponible : ${error.message}');
+    }
+  }
 
-    final response = await http.put(
-      Uri.parse('$baseUrl/me'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode(profileData),
-    );
+  /// 5. Profil affiché par l'écran « Mon profil ».
+  Future<JsonMap?> getProfile() async {
+    if (AuthSession.accessToken == null) return null;
+    try {
+      final profile = await _api.get('/api/moi/profil') as JsonMap;
+      AuthSession.profile = profile;
+      return profile;
+    } on ApiException {
+      return AuthSession.profile;
+    }
+  }
 
-    return response.statusCode == 200;
+  /// 6. Déconnexion : le jeton de rafraîchissement est révoqué côté Node.
+  Future<void> signOut() async {
+    final refresh = AuthSession.refreshToken;
+    AuthSession.clear();
+    if (refresh != null) {
+      try {
+        await _post('/logout', {'refresh_token': refresh});
+      } catch (_) {
+        // hors ligne : la session locale est fermée de toute façon
+      }
+    }
   }
 }

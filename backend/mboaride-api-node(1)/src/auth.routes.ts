@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Request, Response, Router } from "express";
 import { timingSafeEqual } from "node:crypto";
 import type { Knex } from "knex";
 import { config } from "./config.js";
@@ -24,26 +24,46 @@ export function authRouter(db: Knex): Router {
     }
   }
 
-  async function issueOtp(user: UserRow): Promise<void> {
+  /** Envoie un nouveau code (SMS si le compte a un téléphone, sinon e-mail) et le renvoie. */
+  async function issueOtp(user: UserRow): Promise<string> {
     await db("otp_codes").where({ user_id: user.id, consumed: false }).update({ consumed: true });
     const code = newOtp();
     await db("otp_codes").insert({
       user_id: user.id, code_hash: digest(code), expires_at: now() + config.otpMinutes * 60_000,
       attempts: 0, consumed: false,
     });
-    notifications.sendCode((user.email ?? user.phone) as string, code);
+    await notifications.sendCode((user.phone ?? user.email) as string, code);
+    return code;
   }
 
-  async function issueTokens(userId: number) {
+  const publicUser = (user: UserRow) => ({
+    id: user.id, full_name: user.full_name, fullName: user.full_name, email: user.email, phone: user.phone,
+  });
+
+  /** Jetons de session. `token` et `user` servent l'application mobile, qui lit ces deux champs. */
+  async function issueTokens(user: UserRow) {
     const raw = newRefreshToken();
     await db("refresh_tokens").insert({
-      user_id: userId, token_hash: digest(raw), revoked: false,
+      user_id: user.id, token_hash: digest(raw), revoked: false,
       expires_at: now() + config.refreshTokenDays * 86_400_000,
     });
+    const access = createAccessToken(user.id);
     return {
-      access_token: createAccessToken(userId), refresh_token: raw, token_type: "bearer",
-      expires_in: config.accessTokenMinutes * 60,
+      access_token: access, refresh_token: raw, token_type: "bearer",
+      expires_in: config.accessTokenMinutes * 60, token: access, user: publicUser(user),
     };
+  }
+
+  /** Normalise un identifiant facultatif, ou lève une 422 explicite. */
+  function normalized(raw: string | undefined, expected: "email" | "phone"): string | null {
+    if (!raw) return null;
+    try {
+      const [kind, value] = normalizeIdentifier(raw);
+      if (kind !== expected) throw new Error(expected === "email" ? "Email invalide" : "Numéro de téléphone invalide");
+      return value;
+    } catch (e) {
+      throw new HttpError(422, (e as Error).message);
+    }
   }
 
   router.post("/register", async (req, res) => {
@@ -54,29 +74,45 @@ export function authRouter(db: Knex): Router {
     } catch (e) {
       throw new HttpError(422, (e as Error).message);
     }
-    let user = await findUser(data.identifier);
-    if (user?.is_verified) throw new HttpError(409, "Un compte existe déjà avec cet identifiant");
+    const email = kind === "email" ? value : normalized(data.email, "email");
+    const phone = kind === "phone" ? value : normalized(data.phone, "phone");
+
+    // Un compte déjà vérifié avec cet e-mail ou ce téléphone bloque l'inscription.
+    const matches = await db<UserRow>("users").where((q) => {
+      if (email) q.orWhere({ email });
+      if (phone) q.orWhere({ phone });
+    });
+    if (matches.some((u) => u.is_verified)) throw new HttpError(409, "Un compte existe déjà avec cet identifiant");
+    if (matches.length > 1) {
+      throw new HttpError(409, "Cet e-mail et ce téléphone appartiennent à deux comptes différents");
+    }
+    let user: UserRow | undefined = matches[0];
 
     const password_hash = await hashPassword(data.password);
     let company_id: number | null = null;
-    if (kind === "email") { // rattachement automatique au cercle de l'entreprise (US01)
-      const company = await db("companies").where({ email_domain: value.split("@")[1] }).first();
+    if (email) { // rattachement automatique au cercle de l'entreprise (US01)
+      const company = await db("companies").where({ email_domain: email.split("@")[1] }).first();
       company_id = company ? company.id : null;
     }
     if (!user) {
       const [row] = await db("users").insert({
-        email: kind === "email" ? value : null, phone: kind === "phone" ? value : null,
-        full_name: data.full_name, password_hash, is_verified: false, company_id, created_at: now(),
+        email, phone, full_name: data.full_name, password_hash, is_verified: false, company_id, created_at: now(),
       }).returning("id");
       user = (await db<UserRow>("users").where({ id: typeof row === "object" ? row.id : row }).first())!;
     } else {
-      await db("users").where({ id: user.id }).update({ full_name: data.full_name, password_hash, company_id });
+      await db("users").where({ id: user.id }).update({ email, phone, full_name: data.full_name, password_hash, company_id });
+      user = { ...user, email, phone };
     }
-    await issueOtp(user);
-    res.status(201).json({ message: "Code de vérification envoyé" });
+    const code = await issueOtp(user);
+    res.status(201).json({
+      message: phone ? "Code de vérification envoyé par SMS" : "Code de vérification envoyé par e-mail",
+      identifier: phone ?? email, phone, email,
+      // Démonstration locale seulement (EXPOSE_DEV_CODE=1) : l'application affiche le code.
+      ...(config.exposeDevCode ? { devOtp: code } : {}),
+    });
   });
 
-  router.post("/verify", async (req, res) => {
+  const verify = async (req: Request, res: Response) => {
     const data = verifySchema.parse(req.body);
     const user = await findUser(data.identifier);
     const otp = user
@@ -91,16 +127,23 @@ export function authRouter(db: Knex): Router {
     }
     await db("otp_codes").where({ id: otp.id }).update({ consumed: true });
     await db("users").where({ id: user.id }).update({ is_verified: true });
-    res.json(await issueTokens(user.id));
-  });
+    res.json(await issueTokens(user));
+  };
+  router.post("/verify", verify);
+  router.post("/verify-otp", verify); // nom utilisé par l'application mobile
 
-  router.post("/otp/resend", async (req, res) => {
+  const resend = async (req: Request, res: Response) => {
     const data = identifierSchema.parse(req.body);
     const user = await findUser(data.identifier);
-    if (user && !user.is_verified) await issueOtp(user);
+    const code = user && !user.is_verified ? await issueOtp(user) : null;
     // Réponse identique dans tous les cas : on ne révèle pas si le compte existe.
-    res.json({ message: "Si le compte existe, un nouveau code a été envoyé" });
-  });
+    res.json({
+      message: "Si le compte existe, un nouveau code a été envoyé",
+      ...(config.exposeDevCode && code ? { devOtp: code } : {}),
+    });
+  };
+  router.post("/otp/resend", resend);
+  router.post("/resend-otp", resend); // nom utilisé par l'application mobile
 
   router.post("/login", async (req, res) => {
     const data = loginSchema.parse(req.body);
@@ -109,7 +152,7 @@ export function authRouter(db: Knex): Router {
       throw new HttpError(401, "Identifiants invalides");
     }
     if (!user.is_verified) throw new HttpError(403, "Compte non vérifié : saisissez le code reçu");
-    res.json(await issueTokens(user.id));
+    res.json(await issueTokens(user));
   });
 
   router.post("/refresh", async (req, res) => {
@@ -121,7 +164,9 @@ export function authRouter(db: Knex): Router {
       throw new HttpError(401, "Session expirée, reconnectez-vous");
     }
     await db("refresh_tokens").where({ id: token.id }).update({ revoked: true }); // usage unique
-    res.json(await issueTokens(token.user_id));
+    const user = await db<UserRow>("users").where({ id: token.user_id }).first();
+    if (!user) throw new HttpError(401, "Session expirée, reconnectez-vous");
+    res.json(await issueTokens(user));
   });
 
   router.post("/logout", async (req, res) => {
@@ -134,8 +179,7 @@ export function authRouter(db: Knex): Router {
     const user = (req as AuthedRequest).user;
     const company = user.company_id ? await db("companies").where({ id: user.company_id }).first() : null;
     res.json({
-      id: user.id, email: user.email, phone: user.phone, full_name: user.full_name,
-      is_verified: Boolean(user.is_verified), company: company ? company.name : null,
+      ...publicUser(user), is_verified: Boolean(user.is_verified), company: company ? company.name : null,
     });
   });
 

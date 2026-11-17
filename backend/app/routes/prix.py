@@ -48,6 +48,7 @@ MOTIFS = {
     "type": "type de trajet différent",
     "confort": "confort obligatoire non respecté",
     "indisponible": "trajet annulé ce jour-là par le conducteur",
+    "jour": "le conducteur ne roule pas ce jour-là",
     "complet": "voiture déjà complète ce jour-là",
     "horaires": "arrivée hors de votre fenêtre ou détour trop long",
     "budget": "prix au-dessus de votre maximum",
@@ -80,7 +81,7 @@ def _demande(conn, id_demande: int, u: dict) -> dict:
 def _trajet(conn, id_trajet: int) -> dict:
     t = conn.execute(
         """SELECT t.*, v.conso_l_100km, v.climatise, v.non_fumeur,
-                  u.prenom AS conducteur_prenom
+                  u.prenom AS conducteur_prenom, u.prix_min_fcfa, u.accepte_collegues, u.accepte_eleves
              FROM trajet t JOIN vehicule v USING (id_vehicule)
              JOIN utilisateur u ON u.id_utilisateur = t.id_conducteur
             WHERE t.id_trajet = %s""", (id_trajet,)).fetchone()
@@ -106,6 +107,13 @@ def niveau_cercle(conn, id_passager: int, id_conducteur: int) -> int:
     return 1 if partenaires else 2
 
 
+def roule_le(t: dict, jour: date) -> bool:
+    """Le trajet a-t-il lieu ce jour-là ? Date unique, ou jour de la semaine (lundi en premier)."""
+    if t["date_unique"] is not None:
+        return t["date_unique"] == jour
+    return t["jours_semaine"][jour.weekday()] == "1"
+
+
 def places_restantes(conn, t: dict, jour: date) -> int:
     pris = conn.execute("SELECT count(*) n FROM reservation WHERE id_trajet = %s AND date_trajet = %s "
                         "AND statut = 'confirmee'", (t["id_trajet"], jour)).fetchone()["n"]
@@ -119,8 +127,11 @@ def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
     if niveau > max_demande:
         raise Refus("cercle", f"Ce conducteur est hors de votre cercle "
                               f"({moteur.NIVEAUX[niveau]} au-delà de {d['cercle_max']})")
-    if (niveau == 1 and not t["ouvert_partenaires"]) or (niveau == 2 and not t["ouvert_public"]):
+    if ((niveau == 0 and not t.get("accepte_collegues", True)) or (niveau == 1 and not t["ouvert_partenaires"])
+            or (niveau == 2 and not t["ouvert_public"])):
         raise Refus("ferme", "Le conducteur n'ouvre pas ce trajet à votre cercle")
+    if d.get("id_eleve") and not t.get("accepte_eleves", True):
+        raise Refus("ferme", "Ce conducteur ne prend pas d'élèves")
     if d["type_trajet"] != t["type_trajet"]:
         raise Refus("type", "Type de trajet différent (urbain ou interurbain)")
 
@@ -129,6 +140,8 @@ def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
         raise Refus("confort", "Le véhicule ne respecte pas votre confort obligatoire (climatisation)")
     jour = jour or d["date_unique"]
     if jour is not None:
+        if not roule_le(t, jour):
+            raise Refus("jour", f"Le conducteur ne roule pas le {jour:%d/%m/%Y}", 409)
         if conn.execute("SELECT 1 FROM indisponibilite_trajet WHERE id_trajet = %s AND date_trajet = %s",
                         (t["id_trajet"], jour)).fetchone():
             raise Refus("indisponible", "Le conducteur a annulé ce trajet pour cette date", 409)

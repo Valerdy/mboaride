@@ -71,7 +71,8 @@ def _compte_node(conn: psycopg.Connection, id_compte: int) -> dict | None:
     return None
 
 
-def _depuis_jeton(conn: psycopg.Connection, entete: str) -> dict:
+def id_compte_du_jeton(entete: str) -> int:
+    """Identifiant du compte Node porté par un jeton d'accès valide, ou 401."""
     if not config.SECRET_KEY:
         raise HTTPException(401, "Aucun secret partagé avec l'API Node : jeton non vérifiable")
     jeton = entete.split(" ", 1)[1].strip()
@@ -87,11 +88,15 @@ def _depuis_jeton(conn: psycopg.Connection, entete: str) -> dict:
         id_compte = int(charge["sub"])
     except (KeyError, TypeError, ValueError):
         raise HTTPException(401, "Jeton de session sans utilisateur") from None
+    return id_compte
 
+
+def _depuis_jeton(conn: psycopg.Connection, entete: str) -> dict:
+    id_compte = id_compte_du_jeton(entete)
     utilisateur = _compte_node(conn, id_compte)
     if utilisateur is None:
         raise HTTPException(403, "Compte authentifié mais sans profil MboaRide : "
-                                 "terminez votre inscription")
+                                 "terminez votre inscription (POST /api/moi/profil)")
     return utilisateur
 
 

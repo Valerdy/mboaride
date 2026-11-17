@@ -1,60 +1,38 @@
-import 'dart:async';
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
-
-import '../../../core/app_config.dart';
-import '../../../core/auth_session.dart';
+import '../../../core/api_client.dart';
 import '../domain/ride_request.dart';
 import 'ride_request_repository.dart';
 
-/// Appelle POST {API}/ride-requests avec la session de l'utilisateur.
+/// Enregistre la demande sur l'API Python (`POST /api/demandes`). Les offres se lisent
+/// ensuite sur `/api/moi/demandes/{id}/offres`, calculées par le moteur d'agents.
 class ApiRideRequestRepository implements RideRequestRepository {
-  ApiRideRequestRepository({http.Client? client})
-    : _client = client ?? http.Client();
+  ApiRideRequestRepository({ApiClient? client}) : _client = client ?? ApiClient();
 
-  final http.Client _client;
+  final ApiClient _client;
+
+  /// Corps attendu par l'API Python : heures locales « HH:MM » et date du trajet.
+  static Map<String, dynamic> body(RideRequest request) {
+    final start = request.windowStart.toLocal();
+    final end = request.windowEnd.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    Map<String, dynamic> place(Place p) => {'libelle': p.name, 'lat': p.lat, 'lon': p.lng};
+    return {
+      'depart': place(request.pickup),
+      'arrivee': place(request.dropoff),
+      'arrivee_au_plus_tot': '${two(start.hour)}:${two(start.minute)}',
+      'arrivee_au_plus_tard': '${two(end.hour)}:${two(end.minute)}',
+      'date_trajet': '${start.year}-${two(start.month)}-${two(start.day)}',
+      'prix_max_fcfa': request.maxPriceFcfa,
+      'clim_obligatoire': request.comforts.contains(Comfort.airConditioning),
+    };
+  }
 
   @override
   Future<RideRequestResult> create(RideRequest request) async {
-    final token = AuthSession.accessToken;
     try {
-      final response = await _client
-          .post(
-            Uri.parse('${AppConfig.apiBaseUrl}/ride-requests'),
-            headers: {
-              'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(request.toJson()),
-          )
-          .timeout(const Duration(seconds: 10));
-      final body = _decode(response);
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return RideRequestResult.fromJson(body);
-      }
-      if (response.statusCode == 401) {
-        throw RideRequestException('Votre session a expiré, reconnectez-vous.');
-      }
-      throw RideRequestException(
-        body['detail']?.toString() ??
-            'La demande a été refusée (code ${response.statusCode}).',
-      );
-    } on TimeoutException {
-      throw RideRequestException('Le serveur ne répond pas. Réessayez.');
-    } on http.ClientException {
-      throw RideRequestException(
-        'Impossible de joindre le serveur. Vérifiez votre connexion.',
-      );
-    }
-  }
-
-  Map<String, dynamic> _decode(http.Response response) {
-    try {
-      final data = jsonDecode(utf8.decode(response.bodyBytes));
-      return data is Map<String, dynamic> ? data : <String, dynamic>{};
-    } on FormatException {
-      return <String, dynamic>{};
+      final json = await _client.post('/api/demandes', body(request));
+      return RideRequestResult.fromJson(json as Map<String, dynamic>);
+    } on ApiException catch (error) {
+      throw RideRequestException(error.message);
     }
   }
 }

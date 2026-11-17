@@ -14,8 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from . import config, moteur
 from .config import RACINE
 from .db import get_conn
-from .routes import (annulation, banc, demo, eleves, organisation, paiement, preferences,
-                     prix, voyages)
+from .routes import (annulation, banc, conducteur, demandes, demo, eleves, organisation, paiement,
+                     preferences, prix, profil, voyages)
 from .securite import utilisateur_courant
 
 app = FastAPI(title="MboaRide", version="0.3.0",
@@ -32,6 +32,9 @@ app.include_router(demo.router)
 app.include_router(eleves.router)
 app.include_router(voyages.router)
 app.include_router(banc.router)
+app.include_router(profil.router)
+app.include_router(demandes.router)
+app.include_router(conducteur.router)
 
 WEB = RACINE / "web"
 
@@ -44,7 +47,8 @@ def health() -> dict:
     serveur OSRM ou de l'estimateur, et si les jetons de l'API Node sont vérifiables.
     """
     return {"status": "ok", "routage": moteur.routage_actif(),
-            "jeton_node": bool(config.SECRET_KEY), "auth_demo": config.DEMO_AUTH}
+            "jeton_node": bool(config.SECRET_KEY), "auth_demo": config.DEMO_AUTH,
+            "agrement_auto": config.AGREMENT_AUTO}
 
 
 @app.get("/api/demo/utilisateurs", tags=["Démo"])

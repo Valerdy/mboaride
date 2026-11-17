@@ -158,9 +158,13 @@ describe("client OSRM HTTP", () => {
     await expect(c.route([{ lat: 4.1, lng: 9.8 }, { lat: 4.0, lng: 9.7 }])).rejects.toMatchObject({ status: 422 });
   });
 
-  it("répond 503 si OSRM est injoignable", async () => {
+  it("se replie sur une estimation si OSRM est injoignable", async () => {
     const c = createOsrmClient("http://127.0.0.1:1", 500);
-    await expect(c.route([LOGPOM, BONANJO])).rejects.toMatchObject({ status: 503 });
+    const r = await c.route([LOGPOM, BONANJO], { geometry: true });
+    expect(r.estimated).toBe(true);
+    expect(r.distance_m).toBeGreaterThan(5000);
+    expect(r.legs).toHaveLength(1);
+    expect(r.geometry?.coordinates).toHaveLength(2);
   });
 
   it("le cache évite de rappeler OSRM", async () => {
