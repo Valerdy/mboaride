@@ -23,6 +23,13 @@ scripts/    Scripts utilitaires
 
 ## Démarrage rapide
 
+**Tout lancer d'un coup sur un PC Windows** (base, deux API, console web, application sur
+le téléphone et l'émulateur) : [docs/lancer-le-projet.md](docs/lancer-le-projet.md), les
+commandes une à une. Explications détaillées et scénario d'essai :
+[docs/demarrage-local.md](docs/demarrage-local.md).
+
+Lancer chaque partie séparément :
+
 ### Prérequis
 Python 3.11+, Node.js 20+, Git.
 
