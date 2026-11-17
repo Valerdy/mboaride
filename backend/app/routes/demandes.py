@@ -99,9 +99,14 @@ def chercher_lieux(q: str = "") -> list[dict]:
 
 
 @router.get("/lieux/distance", tags=["Lieux"])
-def distance(de: str, a: str, interurbain: bool = False) -> dict:
-    """Distance routière estimée entre deux lieux connus, avec l'estimateur du moteur."""
+def distance(de: str, a: str, interurbain: bool | None = None) -> dict:
+    """Distance routière estimée entre deux lieux connus, avec l'estimateur du moteur.
+
+    Sans précision, le trajet est interurbain quand les deux lieux sont des villes.
+    """
     p, q = lieux.trouver(de), lieux.trouver(a)
     if p is None or q is None:
         raise HTTPException(422, f"Lieu inconnu : {de if p is None else a}")
+    if interurbain is None:
+        interurbain = p[0] in lieux.VILLES and q[0] in lieux.VILLES
     return {"de": p[0], "a": q[0], "distance_km": round(moteur.distance_km(p[1], p[2], q[1], q[2], interurbain), 2)}

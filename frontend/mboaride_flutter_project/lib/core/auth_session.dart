@@ -1,9 +1,21 @@
 /// Session de l'utilisateur connecté.
-/// À renseigner après la connexion (US01) : AuthSession.accessToken = tokens.accessToken;
 class AuthSession {
+  /// Jeton d'accès émis par l'API Node, accepté aussi par l'API Python.
   static String? accessToken;
+  static String? refreshToken;
 
-  /// Identifiant de démonstration, envoyé dans l'en-tête `X-Utilisateur`.
-  /// Sert tant que l'API Python n'exige pas le jeton de session ; à laisser nul en production.
+  /// Profil métier renvoyé par l'API Python (`/api/moi/profil`).
+  static Map<String, dynamic>? profile;
+
+  /// Identifiant de démonstration, envoyé dans l'en-tête `X-Utilisateur` par les
+  /// points d'entrée `main_*_demo.dart`. À laisser nul dans l'application réelle.
   static int? demoUserId;
+
+  static String get firstName => (profile?['prenom'] as String?) ?? '';
+
+  static void clear() {
+    accessToken = null;
+    refreshToken = null;
+    profile = null;
+  }
 }

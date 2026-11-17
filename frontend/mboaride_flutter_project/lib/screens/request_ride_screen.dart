@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../app_services.dart';
+import '../core/api_client.dart';
 import '../core/app_config.dart';
 import '../core/auth_session.dart';
-import '../features/ride_request/data/api_ride_request_repository.dart';
+import '../features/children/presentation/children_screen.dart';
+import '../features/driver/presentation/driver_shell.dart';
+import '../features/intercity/presentation/intercity_screen.dart';
+import '../features/offers/presentation/my_requests_screen.dart';
+import '../features/offers/presentation/offers_screen.dart';
+import '../features/preferences/presentation/preferences_screen.dart';
 import '../features/ride_request/data/ride_request_repository.dart';
 import '../features/ride_request/domain/ride_request.dart';
-import 'crew_map_screen.dart';
-import 'driver_agreement_screen.dart';
-import 'intercity_trip_screen.dart';
-import 'my_children_screen.dart';
 import 'profile_screen.dart';
 
 class RequestRideScreen extends StatefulWidget {
@@ -69,7 +72,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
     super.initState();
     final n = DateTime.now();
     _day = n.hour * 60 + n.minute >= 7 * 60 + 30 ? RideDay.tomorrow : RideDay.today;
-    AuthSession.accessToken = widget.token.isEmpty ? null : widget.token;
+    if (widget.token.isNotEmpty) AuthSession.accessToken = widget.token;
     _originFocus.addListener(() {
       if (_originFocus.hasFocus) {
         setState(() => _selectingOriginOnMap = true);
@@ -180,7 +183,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('${AppConfig.apiBaseUrl}/routes/route'),
+        Uri.parse('${AppConfig.authBaseUrl}/routes/route'),
         headers: {
           'Content-Type': 'application/json',
           if (widget.token.isNotEmpty) 'Authorization': 'Bearer ${widget.token}',
@@ -350,9 +353,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final RideRequestRepository repository =
-      AppConfig.useFakeApi ? FakeRideRequestRepository() : ApiRideRequestRepository();
-      final result = await repository.create(
+      final result = await AppServices.rideRequests.create(
         RideRequest(
           pickup: pickup!,
           dropoff: dropoff!,
@@ -366,19 +367,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
         ),
       );
       if (!mounted) return;
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => CrewMapScreen(
-            requestId: result.id,
-            token: widget.token,
-            initialPickup: _originCoords!,
-            initialDropoff: _destCoords!,
-            pickupName: pickup.name,
-            dropoffName: dropoff.name,
-          ),
-        ),
-      );
+      await _openOffers(result.id);
     } on RideRequestException catch (e) {
       if (!mounted) return;
       _showSnack(e.message, isError: true);
@@ -390,14 +379,49 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
     }
   }
 
-  void _openProfile() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const ProfileScreen(identifier: 'utilisateur'),
-      ),
-    );
+  /// Offres calculées par le moteur d'agents pour la demande qui vient d'être créée.
+  Future<void> _openOffers(String requestId) async {
+    final offers = AppServices.offers;
+    try {
+      final requests = await offers.openRequests();
+      final created = requests.where((r) => '${r.id}' == requestId).firstOrNull;
+      if (!mounted) return;
+      if (created == null) {
+        _showSnack('Demande enregistrée. Retrouvez-la dans « Mes demandes ».');
+        _push(_myRequests());
+        return;
+      }
+      _showSnack('Demande enregistrée : voici les offres de nos conducteurs.');
+      final booked = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => OffersScreen(repository: offers, request: created)),
+      );
+      if (booked == true && mounted) _showSnack('Trajet confirmé. Bon voyage !');
+    } on ApiException catch (e) {
+      if (mounted) _showSnack(e.message, isError: true);
+    }
   }
+
+  Widget _myRequests() => MyRequestsScreen(
+    offers: AppServices.offers,
+    preferences: AppServices.preferences,
+    childrenRepository: AppServices.children,
+    intercityRepository: AppServices.intercity,
+  );
+
+  void _push(Widget screen) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+
+  void _openProfile() => _push(const ProfileScreen());
+
+  Widget _drawerItem(IconData icon, String title, Widget screen) => ListTile(
+    leading: Icon(icon, color: primaryGreen),
+    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+    onTap: () {
+      Navigator.pop(context);
+      _push(screen);
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -442,39 +466,15 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                 title: const Text('Trajet urbain (Douala)', style: TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () => Navigator.pop(context),
               ),
-              ListTile(
-                leading: const Icon(Icons.directions_car_rounded, color: primaryGreen),
-                title: const Text('Voyage Douala → Yaoundé', style: TextStyle(fontWeight: FontWeight.w600)),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => IntercityTripScreen(token: widget.token)),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.school_rounded, color: primaryGreen),
-                title: const Text('Mes enfants (Scolaire)', style: TextStyle(fontWeight: FontWeight.w600)),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => MyChildrenScreen(token: widget.token)),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.verified_user_rounded, color: primaryGreen),
-                title: const Text('Devenir conducteur', style: TextStyle(fontWeight: FontWeight.w600)),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => DriverAgreementScreen(token: widget.token)),
-                  );
-                },
-              ),
+              _drawerItem(Icons.receipt_long_rounded, 'Mes demandes et offres', _myRequests()),
+              _drawerItem(Icons.tune_rounded, 'Mes exigences de confort',
+                  PreferencesScreen(repository: AppServices.preferences)),
+              _drawerItem(Icons.directions_car_rounded, 'Voyage Douala → Yaoundé',
+                  IntercityScreen(repository: AppServices.intercity)),
+              _drawerItem(Icons.school_rounded, 'Mes enfants (scolaire)',
+                  ChildrenScreen(repository: AppServices.children)),
+              _drawerItem(Icons.drive_eta_rounded, 'Espace conducteur',
+                  DriverShell(repository: AppServices.driver)),
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.person_rounded, color: darkGreen),

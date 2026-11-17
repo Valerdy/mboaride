@@ -46,46 +46,72 @@ abstract class DriverRepository {
   });
 }
 
-/// Branché sur l'API FastAPI. Seules deux routes conducteur existent aujourd'hui :
-/// `GET /api/moi/trajets` (prochain trajet) et `POST /api/trajets/{id}/annulations`
-/// (annulation et réaffectation). Les autres écrans affichent un message clair tant
-/// que leur route n'est pas ajoutée côté API.
+/// Branché sur l'API Python (`/api/moi/conducteur/...`), qui lit et écrit la base
+/// partagée et calcule prix et horaires avec le moteur d'agents. L'annulation passe par
+/// `POST /api/trajets/{id}/annulations`, qui réaffecte les passagers (US07).
 class ApiDriverRepository implements DriverRepository {
   ApiDriverRepository({ApiClient? client}) : _client = client ?? ApiClient();
 
   final ApiClient _client;
+  static const String _base = '/api/moi/conducteur';
 
-  static Never _missing(String what) => throw ApiException(
-    'Pas encore disponible côté API : $what. '
-    'Lancez l\'application avec FAKE_API=true pour la démonstration.',
-  );
+  /// Pièces de l'agrément : identifiant de l'application ↔ code de l'API.
+  static const Map<String, String> documentCodes = {
+    'identity': 'piece_identite',
+    'licence': 'permis',
+    'criminal_record': 'casier_judiciaire',
+    'insurance': 'assurance',
+  };
+
+  static String _two(int n) => n.toString().padLeft(2, '0');
+  static String _isoDate(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
 
   @override
-  Future<DriverOverview> overview() async =>
-      DriverOverview(firstName: '', approved: null, automatic: true, nextCrew: await nextCrew());
+  Future<DriverOverview> overview() async {
+    final body = await _client.get(_base) as Map<String, dynamic>;
+    return DriverOverview(
+      firstName: body['prenom'] as String? ?? '',
+      approved: body['agree'] as bool?,
+      automatic: body['automatique'] as bool? ?? true,
+      nextCrew: await nextCrew(),
+    );
+  }
 
   @override
   Future<Crew?> nextCrew() async {
-    final rows = await _client.get('/api/moi/trajets') as List<dynamic>;
-    final booked = rows
-        .cast<Map<String, dynamic>>()
-        .where((r) => r['date_trajet'] != null && ((r['passagers'] as num?) ?? 0) > 0)
-        .toList()
-      ..sort((a, b) => (a['date_trajet'] as String).compareTo(b['date_trajet'] as String));
-    if (booked.isEmpty) return null;
-    final row = booked.first;
-    final date = row['date_trajet'] as String;
-    final passengers = (row['passagers'] as num).toInt();
+    final body = await _client.get('$_base/equipage');
+    if (body == null) return null;
+    return crewFromJson(body as Map<String, dynamic>);
+  }
+
+  static Crew crewFromJson(Map<String, dynamic> json) {
+    double? d(Object? v) => (v as num?)?.toDouble();
     return Crew(
-      tripId: (row['id_trajet'] as num).toInt(),
-      date: date,
-      dayLabel: 'Le ${date.substring(8, 10)}/${date.substring(5, 7)}',
-      departure: row['heure'] as String,
-      from: row['depart_libelle'] as String,
-      to: row['arrivee_libelle'] as String,
-      seatsTotal: passengers,
-      stops: const [],
-      arrival: row['heure'] as String,
+      tripId: (json['id_trajet'] as num).toInt(),
+      date: json['date_trajet'] as String,
+      dayLabel: json['jour'] as String? ?? '',
+      departure: json['heure_depart'] as String,
+      from: json['depart'] as String,
+      to: json['arrivee'] as String,
+      seatsTotal: (json['places'] as num).toInt(),
+      arrival: json['arrivee_estimee'] as String? ?? json['heure_depart'] as String,
+      fromLat: d(json['depart_lat']),
+      fromLng: d(json['depart_lon']),
+      toLat: d(json['arrivee_lat']),
+      toLng: d(json['arrivee_lon']),
+      stops: [
+        for (final s in (json['arrets'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>())
+          CrewStop(
+            passenger: s['passager'] as String,
+            place: s['lieu'] as String,
+            pickupTime: s['prise_en_charge'] as String,
+            arrivalTime: s['arrivee'] as String,
+            latestArrival: s['au_plus_tard'] as String,
+            priceFcfa: (s['prix_fcfa'] as num).toInt(),
+            lat: d(s['lat']),
+            lng: d(s['lon']),
+          ),
+      ],
     );
   }
 
@@ -117,39 +143,152 @@ class ApiDriverRepository implements DriverRepository {
     );
   }
 
-  @override
-  Future<Approval> approval() async => _missing('l\'agrément du conducteur');
+  Approval _approval(Map<String, dynamic> body) {
+    final codes = {for (final e in documentCodes.entries) e.value: e.key};
+    return Approval([
+      for (final doc in (body['documents'] as List<dynamic>).cast<Map<String, dynamic>>())
+        DriverDocument(
+          kind: codes[doc['type']] ?? doc['type'] as String,
+          label: doc['libelle'] as String,
+          status: switch (doc['statut']) {
+            'valide' => DocumentStatus.validated,
+            'depose' => DocumentStatus.pending,
+            _ => DocumentStatus.missing,
+          },
+          detail: doc['detail'] as String?,
+        ),
+    ]);
+  }
 
   @override
-  Future<Approval> uploadDocument(String kind) async => _missing('le dépôt des pièces');
+  Future<Approval> approval() async =>
+      _approval(await _client.get('$_base/agrement') as Map<String, dynamic>);
 
   @override
-  Future<Vehicle> vehicle() async => _missing('le véhicule');
+  Future<Approval> uploadDocument(String kind) async => _approval(
+    await _client.post('$_base/agrement/documents/${documentCodes[kind] ?? kind}') as Map<String, dynamic>,
+  );
 
   @override
-  Future<Vehicle> saveVehicle(Vehicle vehicle) async => _missing('le véhicule');
+  Future<Vehicle> vehicle() async {
+    try {
+      final v = await _client.get('$_base/vehicule') as Map<String, dynamic>;
+      return Vehicle(
+        model: v['marque_modele'] as String,
+        plate: v['immatriculation'] as String,
+        seats: (v['places_passagers'] as num).toInt(),
+        consumptionL100: (v['conso_l_100km'] as num).toDouble(),
+        comfort: {
+          if (v['climatise'] == true) Comfort.airConditioning,
+          if (v['non_fumeur'] == true) Comfort.nonSmoking,
+          if (v['accepte_bagages'] == true) Comfort.luggage,
+        },
+      );
+    } on ApiException catch (error) {
+      if (error.statusCode != 404) rethrow;
+      // Pas encore de véhicule : formulaire vide à remplir.
+      return const Vehicle(model: '', plate: '', seats: 3, consumptionL100: 8, comfort: {Comfort.nonSmoking});
+    }
+  }
 
   @override
-  Future<DriverRules> rules() async => _missing('les règles du conducteur');
+  Future<Vehicle> saveVehicle(Vehicle vehicle) async {
+    await _client.put('$_base/vehicule', {
+      'marque_modele': vehicle.model.trim(),
+      'immatriculation': vehicle.plate.trim(),
+      'places_passagers': vehicle.seats,
+      'conso_l_100km': vehicle.consumptionL100,
+      'climatise': vehicle.comfort.contains(Comfort.airConditioning),
+      'non_fumeur': vehicle.comfort.contains(Comfort.nonSmoking),
+      'accepte_bagages': vehicle.comfort.contains(Comfort.luggage),
+    });
+    return vehicle;
+  }
+
+  DriverRules _rules(Map<String, dynamic> r) => DriverRules(
+    colleagues: r['collegues'] as bool,
+    partners: r['partenaires'] as bool,
+    publicNetwork: r['public'] as bool,
+    acceptsStudents: r['eleves'] as bool,
+    minPriceFcfa: (r['prix_min_fcfa'] as num).toInt(),
+    automatic: r['automatique'] as bool,
+  );
 
   @override
-  Future<DriverRules> saveRules(DriverRules rules) async => _missing('les règles du conducteur');
+  Future<DriverRules> rules() async => _rules(await _client.get('$_base/regles') as Map<String, dynamic>);
 
   @override
-  Future<double> estimateDistanceKm(String from, String to) async =>
-      _missing('l\'estimation de distance');
+  Future<DriverRules> saveRules(DriverRules rules) async => _rules(
+    await _client.put('$_base/regles', {
+      'collegues': rules.colleagues,
+      'partenaires': rules.partners,
+      'public': rules.publicNetwork,
+      'eleves': rules.acceptsStudents,
+      'prix_min_fcfa': rules.minPriceFcfa,
+      'automatique': rules.automatic,
+    }) as Map<String, dynamic>,
+  );
 
   @override
-  Future<void> publishTrip(TripPlan plan) async => _missing('la publication de trajet');
+  Future<double> estimateDistanceKm(String from, String to) async {
+    final body = await _client.get(
+      '/api/lieux/distance?de=${Uri.encodeQueryComponent(from)}&a=${Uri.encodeQueryComponent(to)}',
+    ) as Map<String, dynamic>;
+    return (body['distance_km'] as num).toDouble();
+  }
 
   @override
-  Future<List<AgentEvent>> agentActivity() async => _missing('l\'activité de l\'agent');
+  Future<void> publishTrip(TripPlan plan) async {
+    final interurban = plan.kind == TripKind.interurban;
+    await _client.post('$_base/trajets', {
+      'type_trajet': interurban ? 'interurbain' : 'urbain',
+      'depart': plan.from.trim(),
+      'arrivee': plan.to.trim(),
+      'heure_depart': plan.departure,
+      'jours_semaine': plan.weekdays.toList()..sort(),
+      // Voyage interurbain sans jour régulier : il part demain.
+      if (plan.weekdays.isEmpty) 'date_trajet': _isoDate(DateTime.now().add(const Duration(days: 1))),
+      'places': plan.seats,
+      'detour_max_km': plan.maxDetourKm,
+      'peage_fcfa': plan.tollsFcfa,
+      'points_depart': plan.pickupPoints,
+    });
+  }
 
   @override
-  Future<void> reportDelay(Crew crew, int minutes) async => _missing('le signalement de retard');
+  Future<List<AgentEvent>> agentActivity() async {
+    final rows = await _client.get('$_base/activite') as List<dynamic>;
+    return [
+      for (final r in rows.cast<Map<String, dynamic>>())
+        if (r['type'] == 'reservation')
+          AgentEvent(kind: AgentEventKind.booked, title: r['passager'] as String, detail: r['detail'] as String),
+    ];
+  }
 
   @override
-  Future<Earnings> earnings() async => _missing('les gains du conducteur');
+  Future<void> reportDelay(Crew crew, int minutes) async {
+    await _client.post('$_base/retard', {'id_trajet': crew.tripId, 'date_trajet': crew.date, 'minutes': minutes});
+  }
+
+  @override
+  Future<Earnings> earnings() async {
+    final body = await _client.get('$_base/gains') as Map<String, dynamic>;
+    return Earnings(
+      monthLabel: body['mois'] as String,
+      lastTripReceivedFcfa: (body['dernier_trajet_recu_fcfa'] as num).toInt(),
+      lastTripFuelFcfa: (body['dernier_trajet_carburant_fcfa'] as num).toInt(),
+      payments: [
+        for (final p in (body['paiements'] as List<dynamic>).cast<Map<String, dynamic>>())
+          Payment(
+            dateLabel: p['date'] as String,
+            route: p['trajet'] as String,
+            passengers: (p['passagers'] as num).toInt(),
+            amountFcfa: (p['montant_fcfa'] as num).toInt(),
+            received: p['recu'] == true,
+          ),
+      ],
+    );
+  }
 
   @override
   Future<void> ratePassengers(
@@ -157,7 +296,18 @@ class ApiDriverRepository implements DriverRepository {
     List<PassengerRating> ratings, {
     Set<String> reports = const {},
     bool serious = false,
-  }) async => _missing('l\'évaluation des passagers');
+  }) async {
+    await _client.post('$_base/evaluations', {
+      'id_trajet': crew.tripId,
+      'date_trajet': crew.date,
+      'notes': [
+        for (final r in ratings)
+          if (r.stars > 0) {'passager': r.passenger, 'note': r.stars},
+      ],
+      'signalements': reports.toList(),
+      'grave': serious,
+    });
+  }
 }
 
 /// Données simulées (FAKE_API=true) : Armand, conducteur Logpom → Bonabéri (persona du

@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../app_services.dart';
+import '../features/driver/presentation/driver_shell.dart';
 import '../services/auth_service.dart';
 import 'request_ride_screen.dart';
+
+/// Écran ouvert après la connexion : la demande de trajet (passager), ou directement
+/// l'espace conducteur avec `--dart-define=START=driver` (téléphone du conducteur).
+const String _afterLogin = String.fromEnvironment('START', defaultValue: 'ride');
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -103,7 +109,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => RequestRideScreen(token: token),
+        builder: (_) => _afterLogin == 'driver'
+            ? DriverShell(repository: AppServices.driver)
+            : RequestRideScreen(token: token),
       ),
     );
   }
@@ -113,9 +121,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     if (_nameCtrl.text.trim().isEmpty ||
         _emailCtrl.text.trim().isEmpty ||
         _phoneCtrl.text.trim().isEmpty ||
-        _passwordCtrl.text.length < 6) {
+        _passwordCtrl.text.length < 8) {
       _showSnack(
-        'Renseignez votre nom, email, téléphone et un mot de passe (6 car. min.)',
+        'Renseignez votre nom, email, téléphone et un mot de passe (8 caractères min.)',
         isError: true,
       );
       return;
@@ -291,7 +299,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         // 4. Champ ajouté : Mot de passe
         _buildWhiteField(
           controller: _passwordCtrl,
-          hintText: 'Mot de passe (6 caractères min.)',
+          hintText: 'Mot de passe (8 caractères min.)',
           obscureText: _obscurePassword,
           suffixIcon: IconButton(
             icon: Icon(

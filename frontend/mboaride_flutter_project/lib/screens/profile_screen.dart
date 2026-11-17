@@ -1,38 +1,33 @@
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../core/auth_session.dart';
+
+import '../app_services.dart';
+import '../features/children/presentation/children_screen.dart';
+import '../features/driver/presentation/driver_shell.dart';
+import '../features/driver/presentation/vehicle_screen.dart';
+import '../features/intercity/presentation/intercity_screen.dart';
+import '../features/preferences/presentation/preferences_screen.dart';
 import '../services/auth_service.dart';
-import 'driver_agreement_screen.dart';
-import 'my_children_screen.dart';
-import 'intercity_trip_screen.dart';
+import 'registration_screen.dart';
 
+/// Mon profil : identité et cercle (profil métier de l'API Python, créé à l'inscription),
+/// puis les services. Le véhicule et l'agrément se gèrent dans l'espace conducteur.
 class ProfileScreen extends StatefulWidget {
-  final String? initialCompany;
-  final String identifier;
+  const ProfileScreen({super.key, this.authService});
 
-  const ProfileScreen({
-    super.key,
-    this.initialCompany,
-    required this.identifier,
-  });
+  final AuthService? authService;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-enum UserRole { passager, conducteur, lesDeux }
-
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _authService = AuthService();
-  final _fullNameController = TextEditingController();
-  final _companyController = TextEditingController();
-  final _vehicleModelController = TextEditingController();
-  final _plateController = TextEditingController();
-
-  UserRole _selectedRole = UserRole.conducteur;
-  bool _isLoading = false;
+  late final AuthService _authService = widget.authService ?? AuthService();
+  Map<String, dynamic>? _profile;
+  bool _loading = true;
   XFile? _pickedImage;
 
   static const Color primaryGreen = Color(0xFF0B6647);
@@ -43,70 +38,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.initialCompany != null) {
-      _companyController.text = widget.initialCompany!;
-    }
     _loadProfile();
   }
 
-  @override
-  void dispose() {
-    _fullNameController.dispose();
-    _companyController.dispose();
-    _vehicleModelController.dispose();
-    _plateController.dispose();
-    super.dispose();
-  }
-
   Future<void> _pickImage() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 80,
-    );
-    if (image != null) {
-      setState(() {
-        _pickedImage = image;
-      });
-    }
+    final image = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (image != null) setState(() => _pickedImage = image);
   }
 
   Future<void> _loadProfile() async {
     final profile = await _authService.getProfile();
-    if (profile != null && mounted) {
-      setState(() {
-        if (profile['full_name'] != null) _fullNameController.text = profile['full_name'];
-        if (profile['company'] != null && _companyController.text.isEmpty) {
-          _companyController.text = profile['company'];
-        }
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _profile = profile;
+      _loading = false;
+    });
   }
 
-  Future<void> _saveProfile() async {
-    setState(() => _isLoading = true);
-    final success = await _authService.updateProfile({
-      'full_name': _fullNameController.text,
-      'company': _companyController.text,
-      'role': _selectedRole.name,
-      'vehicle_brand_model': _vehicleModelController.text,
-      'vehicle_plate': _plateController.text,
-    });
-    if (!mounted) return;
-    setState(() => _isLoading = false);
+  void _open(Widget screen) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(success ? 'Profil enregistré avec succès !' : 'Erreur lors de la sauvegarde'),
-        backgroundColor: success ? primaryGreen : Colors.red.shade700,
-      ),
+  Future<void> _signOut() async {
+    await _authService.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const RegistrationScreen()),
+      (_) => false,
     );
   }
 
+  String get _driverStatus => switch (_profile?['statut_agrement']) {
+    'actif' => 'Agrément validé',
+    'en_verification' => 'Agrément en vérification',
+    'suspendu' => 'Agrément suspendu',
+    _ => 'Pas encore conducteur',
+  };
+
   @override
   Widget build(BuildContext context) {
-    final currentToken = AuthSession.accessToken ?? '';
-
+    final p = _profile;
+    final organisations = (p?['organisations'] as List<dynamic>? ?? const [])
+        .map((o) => (o as Map<String, dynamic>)['nom'] as String)
+        .toList();
     return Scaffold(
       backgroundColor: bgBeige,
       appBar: AppBar(
@@ -116,220 +89,119 @@ class _ProfileScreenState extends State<ProfileScreen> {
         elevation: 0,
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-
-            // Photo de profil avec bouton d'ajout
-            GestureDetector(
-              onTap: _pickImage,
-              child: Stack(
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundColor: Colors.grey.shade300,
-                    backgroundImage: _pickedImage != null
-                        ? (kIsWeb
-                        ? NetworkImage(_pickedImage!.path)
-                        : FileImage(File(_pickedImage!.path)) as ImageProvider)
-                        : null,
-                    child: _pickedImage == null
-                        ? const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.camera_alt, color: Colors.grey, size: 28),
-                        SizedBox(height: 4),
-                        Text('Ajouter photo', style: TextStyle(fontSize: 10, color: Colors.black54)),
-                      ],
-                    )
-                        : null,
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: primaryGreen,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.edit, color: Colors.white, size: 16),
+                  const SizedBox(height: 10),
+                  GestureDetector(
+                    onTap: _pickImage,
+                    child: CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.grey.shade300,
+                      backgroundImage: _pickedImage == null
+                          ? null
+                          : (kIsWeb
+                                ? NetworkImage(_pickedImage!.path)
+                                : FileImage(File(_pickedImage!.path)) as ImageProvider),
+                      child: _pickedImage == null
+                          ? const Icon(Icons.camera_alt, color: Colors.grey, size: 28)
+                          : null,
                     ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    p == null ? 'Profil indisponible' : '${p['prenom']} ${p['nom']}',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: darkGreen),
+                  ),
+                  const SizedBox(height: 16),
+                  if (p != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _info(Icons.mail_outline, p['email'] as String? ?? '—'),
+                          _info(Icons.phone_outlined, p['telephone'] as String? ?? '—'),
+                          _info(
+                            Icons.groups_outlined,
+                            organisations.isEmpty
+                                ? 'Aucune organisation : réseau public'
+                                : 'Cercle de confiance : ${organisations.join(', ')}',
+                          ),
+                          _info(Icons.verified_user_outlined, _driverStatus),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 28),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Services & activités MboaRide',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: darkGreen),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildServiceTile(
+                    icon: Icons.drive_eta_rounded,
+                    title: 'Espace conducteur',
+                    subtitle: 'Agrément, véhicule, trajets publiés et équipage du jour',
+                    onTap: () => _open(DriverShell(repository: AppServices.driver)),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildServiceTile(
+                    icon: Icons.directions_car_filled_rounded,
+                    title: 'Mon véhicule',
+                    subtitle: 'Places, consommation et confort',
+                    onTap: () => _open(VehicleScreen(repository: AppServices.driver)),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildServiceTile(
+                    icon: Icons.tune_rounded,
+                    title: 'Mes exigences de confort',
+                    subtitle: 'Climatisation, prix maximal, cercle accepté',
+                    onTap: () => _open(PreferencesScreen(repository: AppServices.preferences)),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildServiceTile(
+                    icon: Icons.school_rounded,
+                    title: 'Mes enfants (trajets scolaires)',
+                    subtitle: 'Élèves autorisés et alertes départ et arrivée',
+                    onTap: () => _open(ChildrenScreen(repository: AppServices.children)),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildServiceTile(
+                    icon: Icons.route_rounded,
+                    title: 'Voyage interurbain (Douala → Yaoundé)',
+                    subtitle: 'Réserver une place à l\'avance',
+                    onTap: () => _open(IntercityScreen(repository: AppServices.intercity)),
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton.icon(
+                    onPressed: _signOut,
+                    icon: const Icon(Icons.logout, color: Colors.red),
+                    label: const Text('Se déconnecter', style: TextStyle(color: Colors.red)),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-
-            // Champ Nom complet
-            TextField(
-              controller: _fullNameController,
-              decoration: InputDecoration(
-                labelText: 'Nom complet',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // Champ Entreprise
-            TextField(
-              controller: _companyController,
-              readOnly: false,
-              decoration: InputDecoration(
-                labelText: 'Nom de l\'entreprise',
-                hintText: 'Entrez le nom de votre entreprise',
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 18),
-
-            // Sélection du rôle
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Je suis', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: ChoiceChip(
-                    label: const Text('Passager'),
-                    selected: _selectedRole == UserRole.passager,
-                    selectedColor: primaryGreen,
-                    labelStyle: TextStyle(color: _selectedRole == UserRole.passager ? Colors.white : Colors.black),
-                    onSelected: (selected) => setState(() => _selectedRole = UserRole.passager),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: ChoiceChip(
-                    label: const Text('Conducteur'),
-                    selected: _selectedRole == UserRole.conducteur,
-                    selectedColor: primaryGreen,
-                    labelStyle: TextStyle(color: _selectedRole == UserRole.conducteur ? Colors.white : Colors.black),
-                    onSelected: (selected) => setState(() => _selectedRole = UserRole.conducteur),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: ChoiceChip(
-                    label: const Text('Les deux'),
-                    selected: _selectedRole == UserRole.lesDeux,
-                    selectedColor: primaryGreen,
-                    labelStyle: TextStyle(color: _selectedRole == UserRole.lesDeux ? Colors.white : Colors.black),
-                    onSelected: (selected) => setState(() => _selectedRole = UserRole.lesDeux),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // Détails du véhicule pour conducteurs
-            if (_selectedRole != UserRole.passager) ...[
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Véhicule (conducteur)', style: TextStyle(color: Colors.grey, fontSize: 13)),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _vehicleModelController,
-                decoration: InputDecoration(
-                  labelText: 'Marque et modèle',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: _plateController,
-                decoration: InputDecoration(
-                  labelText: 'Plaque · Places libres : 3',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
-
-            // Bouton Enregistrer
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _saveProfile,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryGreen,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-                ),
-                child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('Enregistrer', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-            ),
-
-            // --- NOUVELLE SECTION : SERVICES & ACTIVITÉS MBOARIDE ---
-            const SizedBox(height: 28),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Services & Activités MboaRide',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: darkGreen),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            _buildServiceTile(
-              icon: Icons.verified_user_rounded,
-              title: 'Devenir conducteur',
-              subtitle: 'Déposer vos documents et activer votre agrément',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DriverAgreementScreen(token: currentToken),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            _buildServiceTile(
-              icon: Icons.school_rounded,
-              title: 'Mes enfants (Trajets scolaires)',
-              subtitle: 'Gérer les élèves autorisés et les alertes départ/arrivée',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MyChildrenScreen(token: currentToken),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            _buildServiceTile(
-              icon: Icons.directions_car_filled_rounded,
-              title: 'Voyage interurbain (Douala → Yaoundé)',
-              subtitle: 'Publier ou gérer un trajet longue distance',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => IntercityTripScreen(token: currentToken),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
     );
   }
+
+  Widget _info(IconData icon, String text) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(
+      children: [
+        Icon(icon, size: 20, color: primaryGreen),
+        const SizedBox(width: 12),
+        Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
+      ],
+    ),
+  );
 
   Widget _buildServiceTile({
     required IconData icon,
@@ -345,18 +217,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          boxShadow: const [
-            BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2)),
-          ],
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: softGreen,
-                borderRadius: BorderRadius.circular(12),
-              ),
+              decoration: BoxDecoration(color: softGreen, borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: primaryGreen, size: 22),
             ),
             const SizedBox(width: 12),
