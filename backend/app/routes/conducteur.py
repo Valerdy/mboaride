@@ -257,6 +257,14 @@ def publier(body: NouveauTrajet, u: dict = Depends(utilisateur_courant),
     jours = None
     if body.date_trajet is None:
         jours = "".join("1" if j in body.jours_semaine else "0" for j in range(1, 8))
+    deja = conn.execute(
+        """SELECT id_trajet FROM trajet WHERE id_conducteur = %s AND statut = 'actif'
+              AND depart_libelle = %s AND arrivee_libelle = %s AND heure_depart = %s
+              AND jours_semaine IS NOT DISTINCT FROM %s AND date_unique IS NOT DISTINCT FROM %s""",
+        (u["id_utilisateur"], depart[0], arrivee[0], body.heure_depart, jours, body.date_trajet)).fetchone()
+    if deja is not None:
+        raise HTTPException(409, f"Ce trajet est déjà publié (trajet n° {deja['id_trajet']}) : "
+                                 "les passagers le voient déjà")
     t = conn.execute(
         """INSERT INTO trajet (id_conducteur, id_vehicule, type_trajet, depart_libelle, depart_lat, depart_lon,
                arrivee_libelle, arrivee_lat, arrivee_lon, heure_depart, date_unique, jours_semaine,

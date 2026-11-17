@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Circle;
 import '../app_services.dart';
 import '../core/api_client.dart';
 import '../core/auth_session.dart';
@@ -12,6 +12,7 @@ import '../features/driver/presentation/driver_shell.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
 import '../features/offers/presentation/my_requests_screen.dart';
 import '../features/offers/presentation/offers_screen.dart';
+import '../features/preferences/domain/preferences.dart';
 import '../features/preferences/presentation/preferences_screen.dart';
 import '../features/ride_request/data/ride_request_repository.dart';
 import '../features/ride_request/domain/ride_request.dart';
@@ -38,7 +39,11 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   TimeOfDay _windowStart = const TimeOfDay(hour: 7, minute: 30);
   TimeOfDay _windowEnd = const TimeOfDay(hour: 8, minute: 0);
 
-  bool _climatisation = true;
+  // Climatisation non exigée par défaut : exigée, elle écarte tous les véhicules sans clim.
+  bool _climatisation = false;
+
+  /// Avec qui voyager : tout MboaRide par défaut, pour voir tous les conducteurs agréés.
+  Circle _circle = Circle.public;
   bool _silence = false;
   bool _isLoading = false;
   bool _isRouteLoading = false;
@@ -309,6 +314,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
             if (_climatisation) Comfort.airConditioning,
             if (_silence) Comfort.quiet,
           },
+          circleCode: _circle.code,
         ),
       );
       if (!mounted) return;
@@ -652,6 +658,32 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                         onTap: () => setState(() => _silence = !_silence),
                       ),
                     ],
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  const Text(
+                    'Avec qui voyager ?',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: darkGreen),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final circle in Circle.values)
+                        ChoiceChip(
+                          label: Text(circle == Circle.public ? 'Tout MboaRide' : circle.label),
+                          selected: _circle == circle,
+                          selectedColor: softGreen,
+                          onSelected: (_) => setState(() => _circle = circle),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _circle.description,
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
                   ),
 
                   const SizedBox(height: 16),

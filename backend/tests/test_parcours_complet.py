@@ -192,3 +192,61 @@ def test_lieux_connus(client):
     assert {"Bonanjo", "Bonabéri", "Bonapriso", "Bonamoussadi"} <= set(noms)
     d = client.get("/api/lieux/distance", params={"de": "Logpom", "a": "bonanjo"}).json()
     assert d["a"] == "Bonanjo" and 8 < d["distance_km"] < 20
+
+
+def test_passager_d_entreprise_et_chauffeur_sans_organisation(client, sql, secret_partage, monkeypatch):  # noqa: F811
+    """Cas de l'essai sur PC : chauffeuse en gmail (aucune organisation), passager d'Entreprise A.
+
+    Le trajet n'est visible que si le passager accepte tout MboaRide (cercle public) ; le
+    diagnostic propose d'élargir, et de la bonne fenêtre quand l'horaire ne colle pas.
+    Toucher deux fois les boutons ne crée ni deux trajets ni deux demandes.
+    """
+    monkeypatch.setattr(config, "AGREMENT_AUTO", True)
+    table_users(sql, [(701, "cindy.test@gmail.com", "+237677000701", "Cindy Test"),
+                      (702, "kevin.test@entreprise-a.cm", "+237699000702", "Kevin Test")])
+    sql("UPDATE public.users SET is_verified = TRUE")
+    cindy, kevin = porteur(jeton(701)), porteur(jeton(702))
+    client.post("/api/moi/profil", headers=cindy)
+    client.post("/api/moi/profil", headers=kevin)
+    for piece in ("piece_identite", "permis", "casier_judiciaire", "assurance"):
+        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers=cindy)
+    client.put("/api/moi/conducteur/vehicule", headers=cindy, json={
+        "marque_modele": "Mercedes", "immatriculation": "LT 701", "places_passagers": 3, "conso_l_100km": 8})
+    trajet = {"depart": "Logpom", "arrivee": "Bonabéri", "heure_depart": "06:45",
+              "jours_semaine": [1, 2, 3, 4, 5], "places": 3, "detour_max_km": 2}
+    pub = client.post("/api/moi/conducteur/trajets", json=trajet, headers=cindy)
+    assert pub.status_code == 201 and pub.json()["ouvert_public"] is True
+    id_trajet = pub.json()["id_trajet"]
+    deux = client.post("/api/moi/conducteur/trajets", json=trajet, headers=cindy)
+    assert deux.status_code == 409 and "déjà publié" in deux.json()["detail"]
+
+    jour = prochain_jour_ouvre().isoformat()
+    demande = {"depart": {"libelle": "Logpom", "lat": 4.0846, "lon": 9.7562},
+               "arrivee": {"libelle": "Bonabéri", "lat": 4.0764, "lon": 9.6644},
+               "arrivee_au_plus_tot": "07:30", "arrivee_au_plus_tard": "08:00",
+               "date_trajet": jour, "prix_max_fcfa": 1000}
+
+    # Cercle « partenaires » : la chauffeuse est hors du cercle, le diagnostic le dit.
+    d = client.post("/api/demandes", headers=kevin, json={**demande, "cercle_max": "partenaires"}).json()
+    ids = [o["id_trajet"] for o in client.get(f"/api/moi/demandes/{d['id']}/offres", headers=kevin).json()]
+    assert id_trajet not in ids
+
+    # Même demande, cercle « tout MboaRide » : même demande mise à jour, pas de doublon.
+    d2 = client.post("/api/demandes", headers=kevin, json={**demande, "cercle_max": "public"}).json()
+    assert d2["id"] == d["id"] and d2["deja_demandee"] is True and d2["cercle_max"] == "public"
+    offre = next(o for o in client.get(f"/api/moi/demandes/{d['id']}/offres", headers=kevin).json()
+                 if o["id_trajet"] == id_trajet)
+    assert offre["conducteur"] == "Cindy" and offre["cercle"] == "public"
+    # Départ 06:45 : arrivée avant 07:30, l'offre est visible mais pas confirmable...
+    assert offre["confirmable"] is False
+    # ... et le diagnostic donne la bonne fenêtre, au nom de la conductrice.
+    diag = client.get(f"/api/moi/demandes/{d['id']}/diagnostic", headers=kevin).json()
+    fenetre = next(s for s in diag["suggestions"] if s["action"] == "fenetre")
+    assert "Cindy" in fenetre["message"]
+
+    d3 = client.post("/api/demandes", headers=kevin, json={
+        **demande, "cercle_max": "public", "arrivee_au_plus_tot": fenetre["arrivee_au_plus_tot"],
+        "arrivee_au_plus_tard": fenetre["arrivee_au_plus_tard"]}).json()
+    offre = next(o for o in client.get(f"/api/moi/demandes/{d3['id']}/offres", headers=kevin).json()
+                 if o["id_trajet"] == id_trajet)
+    assert offre["confirmable"] is True

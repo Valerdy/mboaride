@@ -192,6 +192,16 @@ def horaires(trajet: Trajet, demande: Demande) -> tuple[str, str, float] | None:
     return hhmm(prise), hhmm(arrivee), round(d.detour_m / 1000, 2)
 
 
+def arrivee_sans_fenetre(trajet: Trajet, demande: Demande) -> tuple[str, str] | None:
+    """Prise en charge et arrivée si le conducteur prenait ce passager, quelle que soit la
+    fenêtre demandée ; None si le détour dépasse ce que le conducteur accepte."""
+    d = detour(trajet, demande)
+    if d.detour_m > trajet.detour_max_m:
+        return None
+    prise = trajet.depart_min + d.pickup_offset_s / 60
+    return hhmm(prise), hhmm(prise + d.shared_duration_s / 60)
+
+
 def km_evites(depart_lat, depart_lon, arrivee_lat, arrivee_lon, detour_km, interurbain: bool = False) -> float:
     """Km que le passager n'a pas roulés seul, moins le détour imposé au conducteur."""
     return max(0.0, distance_km(depart_lat, depart_lon, arrivee_lat, arrivee_lon, interurbain)

@@ -142,6 +142,7 @@ class RideRequest {
     required this.windowEnd,
     required this.maxPriceFcfa,
     required this.comforts,
+    this.circleCode,
   });
 
   final Place pickup;
@@ -150,6 +151,10 @@ class RideRequest {
   final DateTime windowEnd;
   final int maxPriceFcfa;
   final Set<Comfort> comforts;
+
+  /// Cercle de confiance accepté pour ce trajet : organisation, partenaires ou public.
+  /// Null : celui des préférences du passager.
+  final String? circleCode;
 
   Map<String, dynamic> toJson() {
     final sorted = comforts.toList()..sort((a, b) => a.index - b.index);
