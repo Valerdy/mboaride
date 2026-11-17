@@ -1,244 +1,186 @@
-import { Router } from 'express';
-import { z } from 'zod';
-import type { Knex } from 'knex';
+import { Request, Response, Router } from "express";
+import { timingSafeEqual } from "node:crypto";
+import type { Knex } from "knex";
+import { config } from "./config.js";
+import { HttpError } from "./errors.js";
+import { AuthedRequest, requireAuth, UserRow } from "./middleware.js";
+import * as notifications from "./notifications.js";
+import { identifierSchema, loginSchema, refreshSchema, registerSchema, verifySchema } from "./schemas.js";
 import {
-  createAccessToken,
-  hashPassword,
-  verifyPassword,
-  newOtp,
-  normalizeIdentifier,
-} from './security.js';
-import { requireAuth } from './middleware.js';
-import { sendSmsOtp } from './notifications.js';
+  createAccessToken, digest, hashPassword, newOtp, newRefreshToken, normalizeIdentifier, verifyPassword,
+} from "./security.js";
 
-const pendingOtps = new Map<string, { code: string; expiresAt: number }>();
-const TEN_MINUTES_MS = 10 * 60 * 1000;
+const now = () => Date.now();
 
-const registerSchema = z.object({
-  fullName: z.string().min(2, 'Le nom complet est requis'),
-  email: z.string().email('Adresse email invalide'),
-  phone: z.string().min(8, 'Numéro de téléphone invalide'),
-  password: z.string().min(6, 'Le mot de passe doit contenir au moins 6 caractères'),
-});
-
-const verifyOtpSchema = z.object({
-  phone: z.string().min(8),
-  code: z.string().length(6, 'Le code OTP doit contenir 6 chiffres'),
-});
-
-const loginSchema = z.object({
-  identifier: z.string().min(3, 'Email ou numéro de téléphone requis'),
-  password: z.string().min(1, 'Mot de passe requis'),
-});
-
-export function authRouter(db: Knex) {
+export function authRouter(db: Knex): Router {
   const router = Router();
 
-  // 1. INSCRIPTION + ENVOI DE L'OTP PAR SMS
-  router.post('/register', async (req, res, next) => {
+  async function findUser(identifier: string): Promise<UserRow | undefined> {
     try {
-      const parsed = registerSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Données invalides' });
-      }
-
-      const fullName = parsed.data.fullName.trim();
-      const [, email] = normalizeIdentifier(parsed.data.email);
-      const [, phone] = normalizeIdentifier(parsed.data.phone);
-      const passwordHash = await hashPassword(parsed.data.password);
-
-      const existing = await db('users')
-          .where({ email })
-          .orWhere({ phone })
-          .first();
-
-      if (existing && existing.is_verified) {
-        return res.status(409).json({ error: 'Un compte vérifié existe déjà avec cet email ou ce numéro.' });
-      }
-
-      // Dans router.post('/register', ...)
-      if (existing) {
-        await db('users').where({ id: existing.id }).update({
-          full_name: fullName,
-          email,
-          phone,
-          password_hash: passwordHash,
-          updated_at: Date.now(),
-        });
-      } else {
-        const now = Date.now();
-        await db('users').insert({
-          full_name: fullName,
-          email,
-          phone,
-          password_hash: passwordHash,
-          is_verified: false,
-          created_at: now,
-          updated_at: now,
-        });
-      }
-
-      const otpCode = newOtp();
-      pendingOtps.set(phone, {
-        code: otpCode,
-        expiresAt: Date.now() + TEN_MINUTES_MS,
-      });
-
-      await sendSmsOtp(phone, otpCode);
-
-      return res.status(201).json({
-        message: 'Code OTP envoyé par SMS',
-        phone,
-        ...(process.env.NODE_ENV !== 'production' ? { devOtp: otpCode } : {}),
-      });
-    } catch (err) {
-      next(err);
+      const [kind, value] = normalizeIdentifier(identifier);
+      return await db<UserRow>("users").where(kind === "email" ? { email: value } : { phone: value }).first();
+    } catch {
+      return undefined;
     }
+  }
+
+  /** Envoie un nouveau code (SMS si le compte a un téléphone, sinon e-mail) et le renvoie. */
+  async function issueOtp(user: UserRow): Promise<string> {
+    await db("otp_codes").where({ user_id: user.id, consumed: false }).update({ consumed: true });
+    const code = newOtp();
+    await db("otp_codes").insert({
+      user_id: user.id, code_hash: digest(code), expires_at: now() + config.otpMinutes * 60_000,
+      attempts: 0, consumed: false,
+    });
+    await notifications.sendCode((user.phone ?? user.email) as string, code);
+    return code;
+  }
+
+  const publicUser = (user: UserRow) => ({
+    id: user.id, full_name: user.full_name, fullName: user.full_name, email: user.email, phone: user.phone,
   });
 
-  // 2. VÉRIFICATION DU CODE OTP SMS -> ACTIVATION & CONNEXION AUTO
-  router.post('/verify-otp', async (req, res, next) => {
+  /** Jetons de session. `token` et `user` servent l'application mobile, qui lit ces deux champs. */
+  async function issueTokens(user: UserRow) {
+    const raw = newRefreshToken();
+    await db("refresh_tokens").insert({
+      user_id: user.id, token_hash: digest(raw), revoked: false,
+      expires_at: now() + config.refreshTokenDays * 86_400_000,
+    });
+    const access = createAccessToken(user.id);
+    return {
+      access_token: access, refresh_token: raw, token_type: "bearer",
+      expires_in: config.accessTokenMinutes * 60, token: access, user: publicUser(user),
+    };
+  }
+
+  /** Normalise un identifiant facultatif, ou lève une 422 explicite. */
+  function normalized(raw: string | undefined, expected: "email" | "phone"): string | null {
+    if (!raw) return null;
     try {
-      const parsed = verifyOtpSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: 'Numéro ou code OTP invalide' });
-      }
-
-      const [, phone] = normalizeIdentifier(parsed.data.phone);
-      const entry = pendingOtps.get(phone);
-
-      if (!entry || entry.expiresAt < Date.now() || entry.code !== parsed.data.code) {
-        return res.status(401).json({ error: 'Code OTP incorrect ou expiré.' });
-      }
-
-      pendingOtps.delete(phone);
-
-      await db('users').where({ phone }).update({ is_verified: true, updated_at: new Date() });
-      const user = await db('users').where({ phone }).first();
-
-      if (!user) {
-        return res.status(404).json({ error: 'Utilisateur introuvable' });
-      }
-
-      const token = createAccessToken(Number(user.id));
-
-      return res.json({
-        token,
-        user: {
-          id: user.id,
-          fullName: user.full_name,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-        },
-      });
-    } catch (err) {
-      next(err);
+      const [kind, value] = normalizeIdentifier(raw);
+      if (kind !== expected) throw new Error(expected === "email" ? "Email invalide" : "Numéro de téléphone invalide");
+      return value;
+    } catch (e) {
+      throw new HttpError(422, (e as Error).message);
     }
+  }
+
+  router.post("/register", async (req, res) => {
+    const data = registerSchema.parse(req.body);
+    let kind: "email" | "phone", value: string;
+    try {
+      [kind, value] = normalizeIdentifier(data.identifier);
+    } catch (e) {
+      throw new HttpError(422, (e as Error).message);
+    }
+    const email = kind === "email" ? value : normalized(data.email, "email");
+    const phone = kind === "phone" ? value : normalized(data.phone, "phone");
+
+    // Un compte déjà vérifié avec cet e-mail ou ce téléphone bloque l'inscription.
+    const matches = await db<UserRow>("users").where((q) => {
+      if (email) q.orWhere({ email });
+      if (phone) q.orWhere({ phone });
+    });
+    if (matches.some((u) => u.is_verified)) throw new HttpError(409, "Un compte existe déjà avec cet identifiant");
+    if (matches.length > 1) {
+      throw new HttpError(409, "Cet e-mail et ce téléphone appartiennent à deux comptes différents");
+    }
+    let user: UserRow | undefined = matches[0];
+
+    const password_hash = await hashPassword(data.password);
+    let company_id: number | null = null;
+    if (email) { // rattachement automatique au cercle de l'entreprise (US01)
+      const company = await db("companies").where({ email_domain: email.split("@")[1] }).first();
+      company_id = company ? company.id : null;
+    }
+    if (!user) {
+      const [row] = await db("users").insert({
+        email, phone, full_name: data.full_name, password_hash, is_verified: false, company_id, created_at: now(),
+      }).returning("id");
+      user = (await db<UserRow>("users").where({ id: typeof row === "object" ? row.id : row }).first())!;
+    } else {
+      await db("users").where({ id: user.id }).update({ email, phone, full_name: data.full_name, password_hash, company_id });
+      user = { ...user, email, phone };
+    }
+    const code = await issueOtp(user);
+    res.status(201).json({
+      message: phone ? "Code de vérification envoyé par SMS" : "Code de vérification envoyé par e-mail",
+      identifier: phone ?? email, phone, email,
+      // Démonstration locale seulement (EXPOSE_DEV_CODE=1) : l'application affiche le code.
+      ...(config.exposeDevCode ? { devOtp: code } : {}),
+    });
   });
 
-  // 3. RENVOI DU CODE OTP PAR SMS
-  router.post('/resend-otp', async (req, res, next) => {
-    try {
-      const rawPhone = String(req.body?.phone ?? '');
-      if (rawPhone.length < 8) return res.status(400).json({ error: 'Numéro invalide' });
-
-      const [, phone] = normalizeIdentifier(rawPhone);
-      const otpCode = newOtp();
-      pendingOtps.set(phone, {
-        code: otpCode,
-        expiresAt: Date.now() + TEN_MINUTES_MS,
-      });
-
-      await sendSmsOtp(phone, otpCode);
-      return res.json({
-        message: 'Nouveau code OTP envoyé par SMS',
-        ...(process.env.NODE_ENV !== 'production' ? { devOtp: otpCode } : {}),
-      });
-    } catch (err) {
-      next(err);
+  const verify = async (req: Request, res: Response) => {
+    const data = verifySchema.parse(req.body);
+    const user = await findUser(data.identifier);
+    const otp = user
+      ? await db("otp_codes").where({ user_id: user.id, consumed: false }).orderBy("id", "desc").first()
+      : undefined;
+    if (!user || !otp || Number(otp.expires_at) < now()) throw new HttpError(400, "Code invalide ou expiré");
+    if (otp.attempts >= config.otpMaxAttempts) throw new HttpError(429, "Trop de tentatives, demandez un nouveau code");
+    const ok = timingSafeEqual(Buffer.from(otp.code_hash), Buffer.from(digest(data.code)));
+    if (!ok) {
+      await db("otp_codes").where({ id: otp.id }).increment("attempts", 1);
+      throw new HttpError(400, "Code invalide ou expiré");
     }
+    await db("otp_codes").where({ id: otp.id }).update({ consumed: true });
+    await db("users").where({ id: user.id }).update({ is_verified: true });
+    res.json(await issueTokens(user));
+  };
+  router.post("/verify", verify);
+  router.post("/verify-otp", verify); // nom utilisé par l'application mobile
+
+  const resend = async (req: Request, res: Response) => {
+    const data = identifierSchema.parse(req.body);
+    const user = await findUser(data.identifier);
+    const code = user && !user.is_verified ? await issueOtp(user) : null;
+    // Réponse identique dans tous les cas : on ne révèle pas si le compte existe.
+    res.json({
+      message: "Si le compte existe, un nouveau code a été envoyé",
+      ...(config.exposeDevCode && code ? { devOtp: code } : {}),
+    });
+  };
+  router.post("/otp/resend", resend);
+  router.post("/resend-otp", resend); // nom utilisé par l'application mobile
+
+  router.post("/login", async (req, res) => {
+    const data = loginSchema.parse(req.body);
+    const user = await findUser(data.identifier);
+    if (!user || !(await verifyPassword(user.password_hash, data.password))) {
+      throw new HttpError(401, "Identifiants invalides");
+    }
+    if (!user.is_verified) throw new HttpError(403, "Compte non vérifié : saisissez le code reçu");
+    res.json(await issueTokens(user));
   });
 
-  // 4. CONNEXION PAR EMAIL OU TÉLÉPHONE + MOT DE PASSE
-  router.post('/login', async (req, res, next) => {
-    try {
-      const parsed = loginSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Identifiants invalides' });
-      }
-
-      const [kind, normalized] = normalizeIdentifier(parsed.data.identifier);
-
-      const user =
-          kind === 'email'
-              ? await db('users').where({ email: normalized }).first()
-              : await db('users').where({ phone: normalized }).first();
-
-      if (!user || !user.password_hash || !(await verifyPassword(user.password_hash, parsed.data.password))) {
-        return res.status(401).json({ error: 'Email/téléphone ou mot de passe incorrect.' });
-      }
-
-      if (!user.is_verified) {
-        const otpCode = newOtp();
-        pendingOtps.set(user.phone, {
-          code: otpCode,
-          expiresAt: Date.now() + TEN_MINUTES_MS,
-        });
-        await sendSmsOtp(user.phone, otpCode);
-        return res.status(403).json({
-          error: 'Compte non vérifié. Un nouveau code SMS vient d’être envoyé.',
-          requiresOtp: true,
-          phone: user.phone,
-        });
-      }
-
-      const token = createAccessToken(Number(user.id));
-
-      return res.json({
-        token,
-        user: {
-          id: user.id,
-          fullName: user.full_name,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-        },
-      });
-    } catch (err) {
-      next(err);
+  router.post("/refresh", async (req, res) => {
+    const data = refreshSchema.parse(req.body);
+    const token = await db("refresh_tokens").where({ token_hash: digest(data.refresh_token) }).first();
+    if (!token || Number(token.expires_at) < now()) throw new HttpError(401, "Session expirée, reconnectez-vous");
+    if (token.revoked) { // jeton déjà utilisé : on suspecte un vol et on coupe toutes les sessions
+      await db("refresh_tokens").where({ user_id: token.user_id }).update({ revoked: true });
+      throw new HttpError(401, "Session expirée, reconnectez-vous");
     }
+    await db("refresh_tokens").where({ id: token.id }).update({ revoked: true }); // usage unique
+    const user = await db<UserRow>("users").where({ id: token.user_id }).first();
+    if (!user) throw new HttpError(401, "Session expirée, reconnectez-vous");
+    res.json(await issueTokens(user));
   });
 
-  // 5. PROFIL UTILISATEUR
-  router.get('/me', requireAuth, async (req: any, res, next) => {
-    try {
-      const userId = req.user?.sub ?? req.user?.id ?? req.userId;
-      const user = await db('users').where({ id: userId }).first();
-      if (!user) return res.status(404).json({ error: 'Utilisateur introuvable' });
-      return res.json(user);
-    } catch (err) {
-      next(err);
-    }
+  router.post("/logout", async (req, res) => {
+    const data = refreshSchema.parse(req.body);
+    await db("refresh_tokens").where({ token_hash: digest(data.refresh_token) }).update({ revoked: true });
+    res.json({ message: "Déconnecté" });
   });
 
-  router.put('/profile', requireAuth, async (req: any, res, next) => {
-    try {
-      const userId = req.user?.sub ?? req.user?.id ?? req.userId;
-      const { full_name, company, role } = req.body ?? {};
-      await db('users')
-          .where({ id: userId })
-          .update({
-            ...(full_name ? { full_name } : {}),
-            ...(company !== undefined ? { company } : {}),
-            ...(role ? { role } : {}),
-            updated_at: new Date(),
-          });
-      const updated = await db('users').where({ id: userId }).first();
-      return res.json(updated);
-    } catch (err) {
-      next(err);
-    }
+  router.get("/me", requireAuth(db), async (req, res) => {
+    const user = (req as AuthedRequest).user;
+    const company = user.company_id ? await db("companies").where({ id: user.company_id }).first() : null;
+    res.json({
+      ...publicUser(user), is_verified: Boolean(user.is_verified), company: company ? company.name : null,
+    });
   });
 
   return router;

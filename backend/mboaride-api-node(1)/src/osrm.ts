@@ -3,7 +3,8 @@ import { HttpError } from "./errors.js";
 export interface LatLng { lat: number; lng: number }
 export interface LineString { type: "LineString"; coordinates: [number, number][] }
 export interface OsrmLeg { distance_m: number; duration_s: number }
-export interface OsrmRoute { distance_m: number; duration_s: number; legs: OsrmLeg[]; geometry?: LineString }
+/** `estimated` : itinéraire calculé localement (OSRM injoignable), pas sur le réseau routier. */
+export interface OsrmRoute { distance_m: number; duration_s: number; legs: OsrmLeg[]; geometry?: LineString; estimated?: boolean }
 export interface OsrmClient {
   route(points: LatLng[], opts?: { geometry?: boolean }): Promise<OsrmRoute>;
 }
@@ -39,6 +40,7 @@ function buildFallbackRoute(points: LatLng[], includeGeometry?: boolean): OsrmRo
   return {
     distance_m: totalDist,
     duration_s: totalDur,
+    estimated: true,
     legs,
     geometry: includeGeometry
         ? {
@@ -101,6 +103,7 @@ export function withCache(client: OsrmClient, ttlMs = 10 * 60_000, max = 1000): 
       const hit = store.get(key);
       if (hit && Date.now() - hit.at < ttlMs) return hit.value;
       const value = await client.route(points, opts);
+      if (value.estimated) return value; // on retentera OSRM au prochain appel
       if (store.size >= max) store.delete(store.keys().next().value as string);
       store.set(key, { at: Date.now(), value });
       return value;

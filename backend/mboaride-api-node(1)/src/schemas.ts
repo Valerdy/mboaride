@@ -1,16 +1,40 @@
 import { z } from "zod";
 import { config } from "./config.js";
 
-export const registerSchema = z.object({
+/**
+ * Deux formes d'inscription sont acceptées :
+ *  - `{ identifier, password, full_name }` : un seul identifiant, e-mail ou téléphone ;
+ *  - `{ fullName, email, phone, password }` : formulaire de l'application mobile, qui
+ *    demande les deux. Le code part alors par SMS, et l'e-mail sert au rattachement à
+ *    l'entreprise et au rapprochement avec le profil métier de l'API Python.
+ */
+export const registerSchema = z.preprocess(
+  (raw) => {
+    const b = (raw ?? {}) as Record<string, unknown>;
+    return {
+      ...b,
+      full_name: b.full_name ?? b.fullName,
+      identifier: b.identifier ?? b.phone ?? b.email,
+    };
+  },
+  z.object({
+    identifier: z.string().min(1, "Identifiant requis"),
+    password: z.string().min(8, "Mot de passe trop court (8 caractères minimum)").max(128),
+    full_name: z.string().trim().min(2, "Nom trop court").max(120),
+    email: z.string().trim().min(1).optional(),
+    phone: z.string().trim().min(1).optional(),
+  }),
+);
+/** `identifier` ou, pour l'application mobile, `phone` (ou `email`). */
+const withIdentifier = (raw: unknown) => {
+  const b = (raw ?? {}) as Record<string, unknown>;
+  return { ...b, identifier: b.identifier ?? b.phone ?? b.email };
+};
+export const verifySchema = z.preprocess(withIdentifier, z.object({
   identifier: z.string().min(1, "Identifiant requis"),
-  password: z.string().min(8, "Mot de passe trop court (8 caractères minimum)").max(128),
-  full_name: z.string().min(2, "Nom trop court").max(120),
-});
-export const verifySchema = z.object({
-  identifier: z.string().min(1),
   code: z.string().regex(/^\d{6}$/, "Le code contient 6 chiffres"),
-});
-export const identifierSchema = z.object({ identifier: z.string().min(1) });
+}));
+export const identifierSchema = z.preprocess(withIdentifier, z.object({ identifier: z.string().min(1, "Identifiant requis") }));
 export const loginSchema = z.object({ identifier: z.string().min(1), password: z.string().min(1) });
 export const refreshSchema = z.object({ refresh_token: z.string().min(1) });
 const a = config.serviceArea;

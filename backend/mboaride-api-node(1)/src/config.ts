@@ -13,6 +13,9 @@ export const config = {
   defaultCountryCode: process.env.DEFAULT_COUNTRY_CODE ?? "+237",
   corsOrigin: process.env.CORS_ORIGIN ?? "*",
   rateLimitMax: num(process.env.RATE_LIMIT_MAX, 100),
+  // Démonstration locale : renvoie le code de vérification dans la réponse, pour l'afficher
+  // dans l'application sans fournisseur SMS. Jamais en production.
+  exposeDevCode: process.env.EXPOSE_DEV_CODE === "1" && process.env.NODE_ENV !== "production",
   // OSRM : serveur local (Docker) ou, pour dépanner, https://router.project-osrm.org (usage léger uniquement)
   osrmUrl: process.env.OSRM_URL ?? "http://localhost:5000",
   osrmTimeoutMs: num(process.env.OSRM_TIMEOUT_MS, 3000),
