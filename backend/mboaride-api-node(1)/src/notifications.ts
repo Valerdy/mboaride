@@ -24,34 +24,35 @@ const twilioClient =
 /**
  * Fonction appelée par auth.routes.ts lors de /register et /otp/resend
  */
-export async function sendCode(identifier: string, code: string): Promise<void> {
-  // 1. Alimente l'outbox en mémoire pour vos tests Vitest
-  outbox.push([identifier, code]);
+export async function sendSmsOtp(phone: string, code: string): Promise<void> {
+  const apiKey = process.env.SMS_API_KEY;
+  const senderId = process.env.SMS_SENDER_ID || 'MboaRide';
 
-  const isEmail = identifier.includes("@");
+  // Mode développement si aucune clé SMS n'est configurée dans .env
+  if (!apiKey) {
+    console.log(`\n📲 [SMS OTP -> ${phone}] Votre code de vérification MboaRide est : ${code}\n`);
+    return;
+  }
 
-  // 2. Envoi réel si les clés d'environnement sont configurées
-  try {
-    if (isEmail && process.env.SMTP_USER) {
-      await transporter.sendMail({
-        from: '"MBOARIDE" <no-reply@mboaride.cm>',
-        to: identifier,
-        subject: "Votre code de vérification MBOARIDE",
-        text: `Votre code OTP est : ${code}`,
-        html: `<h3>Bienvenue sur MBOARIDE</h3><p>Votre code OTP est : <b>${code}</b></p>`,
-      });
-      console.log(`[Email] Code envoyé à ${identifier}`);
-    } else if (!isEmail && twilioClient && process.env.TWILIO_PHONE_NUMBER) {
-      await twilioClient.messages.create({
-        body: `Votre code MBOARIDE est : ${code}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: identifier,
-      });
-      console.log(`[SMS] Code envoyé à ${identifier}`);
-    } else {
-      console.log(`[Outbox Dev] Code OTP généré pour ${identifier} : ${code}`);
-    }
-  } catch (err) {
-    console.error("Erreur lors de l'envoi de la notification:", err);
+  // Exemple d'appel HTTP générique (ex: Africa's Talking / passerelle SMS)
+  const response = await fetch(process.env.SMS_GATEWAY_URL || 'https://api.africastalking.com/version1/messaging', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'apiKey': apiKey,
+      'Accept': 'application/json',
+    },
+    body: new URLSearchParams({
+      username: process.env.SMS_USERNAME || 'sandbox',
+      to: phone,
+      message: `MboaRide : Votre code de confirmation est ${code}. Valable 10 minutes.`,
+      from: senderId,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error('Erreur passerelle SMS:', errText);
+    throw new Error("Impossible d'envoyer le SMS OTP");
   }
 }
