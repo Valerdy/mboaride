@@ -130,6 +130,6 @@ MboaRide tourne.
   Codes de vérification     : affichés dans l'application et dans la fenêtre « API Node »
 
 Applications (dans frontend\mboaride_flutter_project) :
-  Chauffeur, téléphone : flutter run -d <id du téléphone> --dart-define=API_URL=http://127.0.0.1:$PortApi --dart-define=AUTH_URL=http://127.0.0.1:$PortAuth --dart-define=START=driver
+  Chauffeur, téléphone : flutter run -d 2B241FDH3000YX --dart-define=API_URL=http://127.0.0.1:$PortApi --dart-define=AUTH_URL=http://127.0.0.1:$PortAuth --dart-define=START=driver
   Client, émulateur    : flutter run -d emulator-5554 --dart-define=API_URL=http://127.0.0.1:$PortApi --dart-define=AUTH_URL=http://127.0.0.1:$PortAuth
 "@

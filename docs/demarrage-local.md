@@ -59,13 +59,14 @@ et relancer le script.
 
 Démarrer l'émulateur, brancher le téléphone, puis relier les deux au PC
 (`scripts\relier_android.ps1`, inutile si ils étaient déjà là au lancement du script).
-`flutter devices` donne leurs identifiants.
+`flutter devices` donne leurs identifiants : `emulator-5554` pour l'émulateur et
+`2B241FDH3000YX` pour le téléphone du chauffeur (Pixel 7 Pro).
 
 ```powershell
 cd frontend\mboaride_flutter_project
 
 # Chauffeur, sur le téléphone : l'espace conducteur s'ouvre après la connexion
-flutter run -d <id du téléphone> --dart-define=API_URL=http://127.0.0.1:8000 --dart-define=AUTH_URL=http://127.0.0.1:8101 --dart-define=START=driver
+flutter run -d 2B241FDH3000YX --dart-define=API_URL=http://127.0.0.1:8000 --dart-define=AUTH_URL=http://127.0.0.1:8101 --dart-define=START=driver
 
 # Client, sur l'émulateur
 flutter run -d emulator-5554 --dart-define=API_URL=http://127.0.0.1:8000 --dart-define=AUTH_URL=http://127.0.0.1:8101
