@@ -26,6 +26,9 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   final _to = TextEditingController(text: 'Bonabéri');
   final _departure = TextEditingController(text: '06:45');
   final _tolls = TextEditingController(text: '1000');
+  final _meetingPoint = TextEditingController();
+  final _meetingInstructions = TextEditingController();
+  int _waitMinutes = 5;
 
   TripKind _kind = TripKind.urban;
   Set<int> _days = {1, 2, 3, 4, 5};
@@ -47,7 +50,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
 
   @override
   void dispose() {
-    for (final c in [_from, _to, _departure, _tolls]) {
+    for (final c in [_from, _to, _departure, _tolls, _meetingPoint, _meetingInstructions]) {
       c.dispose();
     }
     super.dispose();
@@ -111,6 +114,9 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     maxDetourKm: _detourKm,
     tollsFcfa: _kind == TripKind.interurban ? int.tryParse(_tolls.text.trim()) ?? -1 : 0,
     pickupPoints: _kind == TripKind.interurban ? _points : const [],
+    meetingPoint: _meetingPoint.text.trim(),
+    meetingInstructions: _meetingInstructions.text.trim(),
+    waitMinutes: _waitMinutes,
   );
 
   PriceEstimate? get _priceEstimate {
@@ -123,7 +129,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       consumptionL100: consumption,
       seats: _seats,
       tollsFcfa: interurban ? (int.tryParse(_tolls.text.trim()) ?? 0) : 0,
-      withCommission: interurban,
+      withCommission: true,
     );
   }
 
@@ -282,6 +288,41 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 14),
+          const Text('Point de ramassage', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          TextField(
+            key: const ValueKey('point-ramassage'),
+            controller: _meetingPoint,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Lieu exact où vos passagers vous retrouvent',
+              hintText: 'Station Total de Logpom, côté boulangerie',
+              prefixIcon: Icon(Icons.place_outlined),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _meetingInstructions,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Consignes (facultatif)',
+              hintText: 'Berline grise LT 482 AB, je klaxonne deux fois',
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Attente maximale au point de ramassage', style: TextStyle(fontSize: 14)),
+              ),
+              DropdownButton<int>(
+                value: _waitMinutes,
+                items: [for (final m in const [0, 2, 3, 5, 10, 15]) DropdownMenuItem(value: m, child: Text('$m min'))],
+                onChanged: (m) => setState(() => _waitMinutes = m ?? 5),
+              ),
+            ],
+          ),
           if (interurban) ...[
             const SizedBox(height: 12),
             TextField(
@@ -371,7 +412,8 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       return InfoBanner(
         '$fuelLine, partagés entre vous et les passagers à bord : '
         '${fcfa(estimate.alonePrice)} pour un passager seul, ${fcfa(estimate.fullPrice)} chacun '
-        'quand vos $_seats places sont prises (hors détour).',
+        'quand vos $_seats places sont prises (hors détour). Le prix comprend la commission MboaRide '
+        'de 10 % ; vous recevez le reste dans votre portefeuille à la fin de la course.',
         title: 'Environ ${fcfa(estimate.fullPrice)} par passager, voiture pleine',
         warm: true,
       );

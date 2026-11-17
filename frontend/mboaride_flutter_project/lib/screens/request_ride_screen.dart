@@ -14,7 +14,10 @@ import '../features/offers/presentation/my_requests_screen.dart';
 import '../features/offers/presentation/offers_screen.dart';
 import '../features/payment/presentation/my_trips_screen.dart';
 import '../features/preferences/domain/preferences.dart';
+import '../features/notifications/notifications.dart';
 import '../features/preferences/presentation/preferences_screen.dart';
+import '../features/wallet/wallet_screen.dart';
+import '../services/session.dart';
 import '../features/ride_request/data/ride_request_repository.dart';
 import '../features/ride_request/domain/ride_request.dart';
 import 'profile_screen.dart';
@@ -50,6 +53,50 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   bool _isRouteLoading = false;
   bool _selectingOriginOnMap = true;
   RideDay _day = RideDay.today;
+
+  /// Date choisie au calendrier (« Autre date ») ; null : aujourd'hui ou demain.
+  DateTime? _otherDate;
+
+  /// Jour du trajet demandé.
+  DateTime get _rideDate {
+    final now = DateTime.now();
+    final d = _otherDate ?? (_day == RideDay.today ? now : now.add(const Duration(days: 1)));
+    return DateTime(d.year, d.month, d.day);
+  }
+
+  static const List<String> _days = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
+  static const List<String> _months = [
+    'janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.',
+  ];
+
+  String _dateLabel(DateTime d) => '${_days[d.weekday - 1]} ${d.day} ${_months[d.month - 1]}';
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _otherDate ?? today.add(const Duration(days: 2)),
+      firstDate: today,
+      lastDate: today.add(const Duration(days: 60)),
+      helpText: 'Date du trajet',
+      cancelText: 'Annuler',
+      confirmText: 'Choisir',
+    );
+    if (picked == null) return;
+    setState(() {
+      final days = DateTime(picked.year, picked.month, picked.day).difference(today).inDays;
+      if (days == 0) {
+        _day = RideDay.today;
+        _otherDate = null;
+      } else if (days == 1) {
+        _day = RideDay.tomorrow;
+        _otherDate = null;
+      } else {
+        _otherDate = picked;
+      }
+    });
+  }
 
   LatLng? _originCoords;
   LatLng? _destCoords;
@@ -269,7 +316,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
 
   Future<void> _submitRideRequest() async {
     final now = DateTime.now();
-    final base = _day == RideDay.today ? now : now.add(const Duration(days: 1));
+    final base = _rideDate;
     final start = DateTime(base.year, base.month, base.day, _windowStart.hour, _windowStart.minute);
     final end = DateTime(base.year, base.month, base.day, _windowEnd.hour, _windowEnd.minute);
     final price = int.tryParse(_priceController.text.trim());
@@ -420,6 +467,10 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
               ),
               _drawerItem(Icons.event_seat_rounded, 'Mes trajets (à confirmer, confirmés)',
                   MyTripsScreen(repository: AppServices.payments)),
+              _drawerItem(Icons.account_balance_wallet_rounded, 'Mon portefeuille',
+                  WalletScreen(repository: AppServices.payments)),
+              _drawerItem(Icons.notifications_rounded, 'Notifications',
+                  NotificationsScreen(repository: AppServices.notifications)),
               _drawerItem(Icons.receipt_long_rounded, 'Mes demandes et offres', _myRequests()),
               _drawerItem(Icons.tune_rounded, 'Mes exigences de confort',
                   PreferencesScreen(repository: AppServices.preferences)),
@@ -427,8 +478,15 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                   IntercityScreen(repository: AppServices.intercity)),
               _drawerItem(Icons.school_rounded, 'Mes enfants (scolaire)',
                   ChildrenScreen(repository: AppServices.children)),
-              _drawerItem(Icons.drive_eta_rounded, 'Espace conducteur',
-                  DriverShell(repository: AppServices.driver)),
+              _drawerItem(
+                Icons.drive_eta_rounded,
+                'Espace conducteur',
+                DriverShell(
+                  repository: AppServices.driver,
+                  walletRepository: AppServices.payments,
+                  notifications: AppServices.notifications,
+                ),
+              ),
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.person_rounded, color: darkGreen),
@@ -436,6 +494,16 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   _openProfile();
+                },
+              ),
+              const Spacer(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text('Se déconnecter',
+                    style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Session.confirmSignOut(context);
                 },
               ),
             ],
@@ -492,6 +560,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                     ],
                   ),
                 ),
+                NotificationBell(repository: AppServices.notifications),
                 IconButton(
                   onPressed: _openProfile,
                   tooltip: 'Mon profil',
@@ -591,15 +660,39 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
 
                   SizedBox(
                     width: double.infinity,
-                    child: SegmentedButton<RideDay>(
-                      segments: const [
-                        ButtonSegment(value: RideDay.today, label: Text("Aujourd'hui")),
-                        ButtonSegment(value: RideDay.tomorrow, label: Text('Demain')),
+                    child: SegmentedButton<int>(
+                      showSelectedIcon: false,
+                      segments: [
+                        const ButtonSegment(value: 0, label: Text("Aujourd'hui")),
+                        const ButtonSegment(value: 1, label: Text('Demain')),
+                        ButtonSegment(
+                          value: 2,
+                          icon: const Icon(Icons.calendar_month, size: 18),
+                          label: Text(_otherDate == null ? 'Autre date' : _dateLabel(_otherDate!)),
+                        ),
                       ],
-                      selected: {_day},
-                      onSelectionChanged: (s) => setState(() => _day = s.first),
+                      selected: {_otherDate != null ? 2 : (_day == RideDay.today ? 0 : 1)},
+                      onSelectionChanged: (s) {
+                        if (s.first == 2) {
+                          _pickDate();
+                        } else {
+                          setState(() {
+                            _otherDate = null;
+                            _day = s.first == 0 ? RideDay.today : RideDay.tomorrow;
+                          });
+                        }
+                      },
                     ),
                   ),
+                  if (_otherDate != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: TextButton.icon(
+                        onPressed: _pickDate,
+                        icon: const Icon(Icons.edit_calendar, size: 18),
+                        label: Text('Trajet du ${_dateLabel(_otherDate!)} · changer la date'),
+                      ),
+                    ),
 
                   const SizedBox(height: 12),
 

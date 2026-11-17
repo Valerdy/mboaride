@@ -156,17 +156,23 @@ class DetailPrix:
                 "montant_fcfa": q.fuel_cost}]
         if q.tolls:
             out.append({"libelle": "Péage", "montant_fcfa": q.tolls})
-        out.append({"libelle": f"Partagé entre {q.divisor} occupant(s) à bord (conducteur compris)",
+        out.append({"libelle": f"Part du conducteur : frais partagés entre {q.divisor} occupant(s) à bord "
+                               f"(conducteur compris)",
                     "montant_fcfa": q.price - q.commission})
         if q.commission:
-            out.append({"libelle": "Commission MboaRide (10 %, trajets publics et interurbains)",
+            out.append({"libelle": "Commission MboaRide (10 % du prix, prélevée sur chaque trajet)",
                         "montant_fcfa": q.commission})
-        out.append({"libelle": "Prix du trajet", "montant_fcfa": q.price})
+        out.append({"libelle": "Prix du trajet (arrondi aux 25 FCFA)" if POLITIQUE.rounding_step == 25
+                    else "Prix du trajet", "montant_fcfa": q.price})
         return out
 
 
 def detail_prix(trajet: Trajet, demande: Demande, niveau: int, places_reservees: int = 0) -> DetailPrix:
-    """Devis de l'agent conducteur pour ce passager, décomposé ligne par ligne."""
+    """Devis de l'agent conducteur pour ce passager, décomposé ligne par ligne.
+
+    `places_reservees` : passagers déjà à bord ce jour-là ; plus la voiture est pleine,
+    moins chacun paie. La commission de 10 % s'applique à tous les cercles (PRODUCT_POLICY).
+    """
     d = detour(trajet, demande)
     q = quote(POLITIQUE, shared_distance_m=d.shared_distance_m, detour_m=d.detour_m,
               trip_distance_m=d.trip_distance_m, consumption_l_per_100km=trajet.conso_l100,

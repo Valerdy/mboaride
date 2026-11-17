@@ -11,6 +11,10 @@ Critères d'acceptation :
   4. Le reçu indique la référence, le montant, la part reversée au conducteur et la
      commission éventuelle.
   5. Si la réservation est annulée par le conducteur, un paiement réussi est remboursé.
+  6. Le passager peut aussi payer avec son portefeuille MboaRide (routes/portefeuille.py) :
+     le paiement est immédiat, et un remboursement revient dans le portefeuille.
+  7. L'argent reste chez MboaRide jusqu'à la fin de la course : le conducteur le reçoit,
+     commission de 10 % déduite, quand tout l'équipage a validé la fin (routes/course.py).
 Aucun opérateur réel n'est appelé : la validation sur le téléphone est simulée dans
 l'interface, et l'API reproduit le cycle de vie d'un vrai paiement (initiation, attente,
 confirmation par l'opérateur).
@@ -25,6 +29,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from .. import portefeuille as pf
 from ..db import get_conn
 from ..notifications import notifier
 from ..securite import utilisateur_courant
@@ -152,7 +157,8 @@ def recu(p: dict) -> dict:
         "statut": p["statut"], "reference": p["reference_transaction"],
         "operateur": op, "telephone": p["telephone_payeur"],
         "montant_fcfa": p["montant_fcfa"], "commission_fcfa": p["commission_fcfa"],
-        "reverse_conducteur_fcfa": p["montant_fcfa"] - p["commission_fcfa"],
+        "reverse_conducteur_fcfa": p["montant_fcfa"] - p["commission_fcfa"], "moyen": p["moyen"],
+        "verse_au_conducteur": p["verse_le"] is not None,
         "tentatives": p["tentatives"], "tentatives_restantes": MAX_TENTATIVES - p["tentatives"],
         "motif_echec": p["motif_echec"], "paye_le": p["paye_le"], "rembourse_le": p["rembourse_le"],
     }
@@ -215,18 +221,46 @@ def reponse_operateur(id_paiement: int, body: Reponse, u: dict = Depends(utilisa
     if motif is None:
         conn.execute("UPDATE paiement SET statut = 'reussi', paye_le = now() WHERE id_paiement = %s",
                      (id_paiement,))
-        notifier(conn, u["id_utilisateur"], "paiement",
-                 f"Paiement de {p['montant_fcfa']} FCFA reçu (réf. {p['reference_transaction']}) : "
-                 f"votre trajet du {p['date_trajet']:%d/%m} avec {p['conducteur']} est confirmé.")
-        conducteur = conn.execute("SELECT t.id_conducteur FROM reservation r JOIN trajet t USING (id_trajet) "
-                                  "WHERE r.id_reservation = %s", (p["id_reservation"],)).fetchone()
-        notifier(conn, conducteur["id_conducteur"], "paiement",
-                 f"{u['prenom']} a payé sa place du {p['date_trajet']:%d/%m} "
-                 f"({p['depart_libelle']} → {p['arrivee_libelle']}) : passager confirmé.")
+        _prevenir_paiement_recu(conn, p, u)
     else:
         conn.execute("UPDATE paiement SET statut = 'echoue', motif_echec = %s WHERE id_paiement = %s",
                      (motif, id_paiement))
     return recu(_paiement(conn, id_paiement, u))
+
+
+def _prevenir_paiement_recu(conn, p: dict, u: dict) -> None:
+    notifier(conn, u["id_utilisateur"], "paiement",
+             f"Paiement de {p['montant_fcfa']} FCFA reçu (réf. {p['reference_transaction']}) : "
+             f"votre trajet du {p['date_trajet']:%d/%m} avec {p['conducteur']} est confirmé.")
+    conducteur = conn.execute("SELECT t.id_conducteur FROM reservation r JOIN trajet t USING (id_trajet) "
+                              "WHERE r.id_reservation = %s", (p["id_reservation"],)).fetchone()
+    notifier(conn, conducteur["id_conducteur"], "paiement",
+             f"{u['prenom']} a payé sa place du {p['date_trajet']:%d/%m} "
+             f"({p['depart_libelle']} → {p['arrivee_libelle']}) : passager confirmé. Vous serez payé "
+             f"à la fin de la course, quand l'équipage l'aura validée.")
+
+
+@router.post("/paiements/{id_paiement}/portefeuille")
+def payer_avec_portefeuille(id_paiement: int, u: dict = Depends(utilisateur_courant),
+                            conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Paiement immédiat avec le solde du portefeuille MboaRide (409 si le solde ne suffit pas)."""
+    p = _paiement(conn, id_paiement, u)
+    if p["statut"] == "reussi":
+        raise HTTPException(409, "Ce trajet est déjà payé")
+    if p["statut"] == "rembourse" or p["statut_reservation"] == "annulee":
+        raise HTTPException(409, "Réservation annulée : rien à payer")
+    reference = "MBR-" + secrets.token_hex(4).upper()
+    pf.mouvement(conn, u["id_utilisateur"], "paiement", -p["montant_fcfa"],
+                 f"Trajet {p['depart_libelle']} → {p['arrivee_libelle']} du {p['date_trajet']:%d/%m} "
+                 f"avec {p['conducteur']}", reference, p["id_reservation"])
+    conn.execute(
+        """UPDATE paiement SET moyen = 'portefeuille', operateur = NULL, telephone_payeur = NULL,
+               reference_transaction = %s, statut = 'reussi', initie_le = now(), paye_le = now(),
+               motif_echec = NULL
+           WHERE id_paiement = %s""", (reference, id_paiement))
+    p = _paiement(conn, id_paiement, u)
+    _prevenir_paiement_recu(conn, p, u)
+    return recu(p)
 
 
 def rembourser_ou_annuler(conn, id_reservation: int, id_passager: int) -> str | None:
@@ -234,9 +268,19 @@ def rembourser_ou_annuler(conn, id_reservation: int, id_passager: int) -> str | 
     p = conn.execute("SELECT * FROM paiement WHERE id_reservation = %s", (id_reservation,)).fetchone()
     if p is None:
         return None
+    if p["statut"] == "reussi" and p["verse_le"] is not None:
+        return "verse"                      # course terminée et déjà payée au conducteur
     if p["statut"] == "reussi":
         conn.execute("UPDATE paiement SET statut = 'rembourse', rembourse_le = now() WHERE id_paiement = %s",
                      (p["id_paiement"],))
+        if p["moyen"] == "portefeuille":
+            pf.mouvement(conn, id_passager, "remboursement", p["montant_fcfa"],
+                         f"Remboursement du trajet annulé (réf. {p['reference_transaction']})",
+                         p["reference_transaction"], id_reservation)
+            notifier(conn, id_passager, "remboursement",
+                     f"Votre paiement de {p['montant_fcfa']} FCFA (réf. {p['reference_transaction']}) "
+                     f"vous a été remboursé dans votre portefeuille MboaRide.")
+            return "rembourse"
         notifier(conn, id_passager, "remboursement",
                  f"Votre paiement de {p['montant_fcfa']} FCFA (réf. {p['reference_transaction']}) "
                  f"vous a été remboursé sur votre compte Mobile Money.")

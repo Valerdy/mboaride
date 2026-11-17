@@ -10,9 +10,11 @@ import '../features/driver/presentation/driver_shell.dart';
 import '../features/driver/presentation/vehicle_screen.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
 import '../features/payment/presentation/my_trips_screen.dart';
+import '../features/notifications/notifications.dart';
 import '../features/preferences/presentation/preferences_screen.dart';
+import '../features/wallet/wallet_screen.dart';
 import '../services/auth_service.dart';
-import 'registration_screen.dart';
+import '../services/session.dart';
 
 /// Mon profil : identité et cercle (profil métier de l'API Python, créé à l'inscription),
 /// puis les services. Le véhicule et l'agrément se gèrent dans l'espace conducteur.
@@ -59,14 +61,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _open(Widget screen) =>
       Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
 
-  Future<void> _signOut() async {
-    await _authService.signOut();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const RegistrationScreen()),
-      (_) => false,
-    );
-  }
+  /// Déconnexion immédiate (la révocation du jeton part en arrière-plan).
+  void _signOut() => Session.confirmSignOut(context);
 
   String get _driverStatus => switch (_profile?['statut_agrement']) {
     'actif' => 'Agrément validé',
@@ -155,10 +151,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 10),
                   _buildServiceTile(
+                    icon: Icons.account_balance_wallet_rounded,
+                    title: 'Mon portefeuille',
+                    subtitle: 'Solde, recharge Mobile Money, gains de conducteur',
+                    onTap: () => _open(WalletScreen(repository: AppServices.payments)),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildServiceTile(
+                    icon: Icons.notifications_rounded,
+                    title: 'Notifications',
+                    subtitle: 'Retards, annulations, fin de course, paiements',
+                    onTap: () => _open(NotificationsScreen(repository: AppServices.notifications)),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildServiceTile(
                     icon: Icons.drive_eta_rounded,
                     title: 'Espace conducteur',
                     subtitle: 'Agrément, véhicule, trajets publiés et équipage du jour',
-                    onTap: () => _open(DriverShell(repository: AppServices.driver)),
+                    onTap: () => _open(DriverShell(
+                      repository: AppServices.driver,
+                      walletRepository: AppServices.payments,
+                      notifications: AppServices.notifications,
+                    )),
                   ),
                   const SizedBox(height: 10),
                   _buildServiceTile(

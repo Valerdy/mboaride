@@ -110,7 +110,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => _afterLogin == 'driver'
-            ? DriverShell(repository: AppServices.driver)
+            ? DriverShell(
+                repository: AppServices.driver,
+                walletRepository: AppServices.payments,
+                notifications: AppServices.notifications,
+              )
             : RequestRideScreen(token: token),
       ),
     );

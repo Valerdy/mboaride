@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../core/api_client.dart';
 import '../../../core/auth_session.dart';
 import '../../../core/mboa_theme.dart';
+import '../../wallet/wallet_screen.dart';
 import '../data/payment_repository.dart';
 import '../domain/payment.dart';
 
@@ -44,6 +45,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _busy = false;
   String? _error;
   PaymentReceipt? _paid;
+  Wallet? _wallet;
 
   MobileMoneyOperator _operator = MobileMoneyOperator.mtn;
   final _phone = TextEditingController();
@@ -67,8 +69,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _load() async {
     try {
       final accounts = await widget.repository.accounts();
+      Wallet? wallet;
+      try {
+        wallet = await widget.repository.wallet();
+      } on ApiException {
+        wallet = null; // portefeuille indisponible : on paie par Mobile Money
+      }
       if (!mounted) return;
       setState(() {
+        _wallet = wallet;
         _accounts = accounts;
         _selected = accounts.where((a) => a.isDefault).firstOrNull?.id ?? accounts.firstOrNull?.id;
         _adding = accounts.isEmpty;
@@ -144,6 +153,67 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
+  Future<void> _payWithWallet() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.repository.payWithWallet(widget.paymentId);
+      if (mounted) setState(() => _paid = result);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openWallet() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => WalletScreen(repository: widget.repository)),
+    );
+    if (mounted) _load();
+  }
+
+  Widget _walletChoice(Wallet w) {
+    final enough = w.balanceFcfa >= widget.amountFcfa;
+    return _Card(
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.account_balance_wallet_outlined, color: MboaColors.green),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Mon portefeuille MboaRide · ${w.balanceFcfa} FCFA',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          enough
+              ? 'Paiement immédiat, sans code. L\'argent reste chez MboaRide jusqu\'à la fin de la course.'
+              : 'Solde insuffisant : rechargez votre portefeuille depuis Mobile Money, ou payez directement ci-dessous.',
+          style: const TextStyle(fontSize: 12.5, color: MboaColors.mutedText),
+        ),
+        const SizedBox(height: 10),
+        enough
+            ? FilledButton.icon(
+                onPressed: _busy ? null : _payWithWallet,
+                icon: const Icon(Icons.bolt),
+                label: Text('Payer ${widget.amountFcfa} FCFA avec mon portefeuille'),
+              )
+            : OutlinedButton.icon(
+                onPressed: _busy ? null : _openWallet,
+                icon: const Icon(Icons.add),
+                label: const Text('Recharger mon portefeuille'),
+              ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
@@ -190,8 +260,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final accounts = _accounts;
     return [
       if (accounts == null && _error == null) const Center(child: CircularProgressIndicator()),
+      if (_wallet != null) ...[
+        _walletChoice(_wallet!),
+        const SizedBox(height: 8),
+      ],
       if (accounts != null && accounts.isNotEmpty) ...[
-        const Text('Payer avec', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+        Text(_wallet == null ? 'Payer avec' : 'Ou payer par Mobile Money',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         RadioGroup<int>(
           groupValue: _selected,
@@ -321,8 +396,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
           Text('Montant : ${r.amountFcfa} FCFA'),
           if (r.operatorLabel != null) Text('Payé avec : ${r.operatorLabel} ${r.phone ?? ''}'),
           const SizedBox(height: 8),
-          Text('${widget.driver} est prévenu. Retrouvez ce trajet dans « Mes trajets ».',
-              style: const TextStyle(color: MboaColors.mutedText)),
+          Text(
+            '${widget.driver} est prévenu. MboaRide garde le paiement jusqu\'à la fin de la course : '
+            '${widget.driver} le recevra quand vous l\'aurez validée. Retrouvez ce trajet dans « Mes trajets ».',
+            style: const TextStyle(color: MboaColors.mutedText),
+          ),
         ],
       ),
       const SizedBox(height: 18),

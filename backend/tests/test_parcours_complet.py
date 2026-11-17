@@ -65,7 +65,7 @@ def test_parcours_conducteur_et_passagere(client, sql, comptes):
 
     # --- Conducteur : agrément, véhicule, règles, publication ---------------------------
     trajet = {"depart": "logpom", "arrivee": "Bonanjo", "heure_depart": "06:50",
-              "jours_semaine": [1, 2, 3, 4, 5], "places": 3, "detour_max_km": 3}
+              "jours_semaine": [1, 2, 3, 4, 5], "places": 3, "point_ramassage": "Carrefour du quartier, devant la pharmacie", "detour_max_km": 3}
     assert client.post("/api/moi/conducteur/trajets", json=trajet, headers=kevin).status_code == 403
 
     for piece in ("piece_identite", "permis", "casier_judiciaire"):
@@ -138,7 +138,9 @@ def test_parcours_conducteur_et_passagere(client, sql, comptes):
     assert notes[0]["type"] == "retard" and "Kevin" in notes[0]["message"]
 
     g = client.get("/api/moi/conducteur/gains", headers=kevin).json()
-    assert g["paiements"][0]["recu"] is True and g["dernier_trajet_carburant_fcfa"] > 0
+    # Payé par Lina mais gardé par MboaRide : versé au conducteur à la fin de la course.
+    assert g["paiements"][0]["recu"] is False and g["dernier_trajet_carburant_fcfa"] > 0
+    assert g["paiements"][0]["commission_fcfa"] == offre["commission_fcfa"]
 
     ev = client.post("/api/moi/conducteur/evaluations", headers=kevin, json={
         "id_trajet": id_trajet, "date_trajet": jour.isoformat(), "notes": [{"passager": "Lina", "note": 5}]})
@@ -156,7 +158,7 @@ def test_les_regles_du_conducteur_filtrent_les_offres(client, sql, comptes):
         "marque_modele": "Berline", "immatriculation": "LT 1", "places_passagers": 3, "conso_l_100km": 8})
     id_trajet = client.post("/api/moi/conducteur/trajets", headers=kevin, json={
         "depart": "Logpom", "arrivee": "Bonanjo", "heure_depart": "06:50", "jours_semaine": [1, 2, 3, 4, 5],
-        "places": 3, "detour_max_km": 3}).json()["id_trajet"]
+        "places": 3, "point_ramassage": "Carrefour du quartier, devant la pharmacie", "detour_max_km": 3}).json()["id_trajet"]
     id_demande = client.post("/api/demandes", headers=lina, json={
         "depart": {"libelle": "Kotto", "lat": 4.072, "lon": 9.766},
         "arrivee": {"libelle": "Bonanjo", "lat": 4.042, "lon": 9.689},
@@ -169,7 +171,7 @@ def test_les_regles_du_conducteur_filtrent_les_offres(client, sql, comptes):
 
     regles = {"collegues": True, "partenaires": True, "public": False, "eleves": True, "automatique": True}
     client.put("/api/moi/conducteur/regles", headers=kevin, json={**regles, "prix_min_fcfa": 1500})
-    assert offre()["prix_fcfa"] == 1500
+    assert offre()["prix_fcfa"] == 1675 and offre()["part_conducteur_fcfa"] >= 1500  # plancher + 10 %
     client.put("/api/moi/conducteur/regles", headers=kevin, json={**regles, "collegues": False, "prix_min_fcfa": 0})
     assert offre() is None
 
@@ -184,7 +186,7 @@ def test_un_trajet_regulier_n_est_pas_propose_un_jour_ou_il_ne_roule_pas(client,
         "marque_modele": "Berline", "immatriculation": "LT 2", "places_passagers": 3, "conso_l_100km": 8})
     id_trajet = client.post("/api/moi/conducteur/trajets", headers=kevin, json={
         "depart": "Logpom", "arrivee": "Bonanjo", "heure_depart": "06:50", "jours_semaine": [1, 2, 3, 4, 5],
-        "places": 3}).json()["id_trajet"]
+        "places": 3, "point_ramassage": "Carrefour du quartier, devant la pharmacie"}).json()["id_trajet"]
     samedi = date.today() + timedelta(days=(5 - date.today().weekday()) % 7 or 7)
     id_demande = client.post("/api/demandes", headers=lina, json={
         "depart": {"libelle": "Kotto", "lat": 4.072, "lon": 9.766},
@@ -223,7 +225,7 @@ def test_passager_d_entreprise_et_chauffeur_sans_organisation(client, sql, secre
     client.put("/api/moi/conducteur/vehicule", headers=cindy, json={
         "marque_modele": "Mercedes", "immatriculation": "LT 701", "places_passagers": 3, "conso_l_100km": 8})
     trajet = {"depart": "Logpom", "arrivee": "Bonabéri", "heure_depart": "06:45",
-              "jours_semaine": [1, 2, 3, 4, 5], "places": 3, "detour_max_km": 2}
+              "jours_semaine": [1, 2, 3, 4, 5], "places": 3, "point_ramassage": "Carrefour du quartier, devant la pharmacie", "detour_max_km": 2}
     pub = client.post("/api/moi/conducteur/trajets", json=trajet, headers=cindy)
     assert pub.status_code == 201 and pub.json()["ouvert_public"] is True
     id_trajet = pub.json()["id_trajet"]
@@ -275,7 +277,7 @@ def test_paiement_mobile_money_et_mes_trajets(client, sql, comptes):
         "marque_modele": "Berline", "immatriculation": "LT 9", "places_passagers": 3, "conso_l_100km": 8})
     id_trajet = client.post("/api/moi/conducteur/trajets", headers=kevin, json={
         "depart": "Logpom", "arrivee": "Bonanjo", "heure_depart": "06:50", "jours_semaine": [1, 2, 3, 4, 5],
-        "places": 3, "detour_max_km": 3}).json()["id_trajet"]
+        "places": 3, "point_ramassage": "Carrefour du quartier, devant la pharmacie", "detour_max_km": 3}).json()["id_trajet"]
     jour = prochain_jour_ouvre().isoformat()
     id_demande = client.post("/api/demandes", headers=lina, json={
         "depart": {"libelle": "Kotto", "lat": 4.072, "lon": 9.766},

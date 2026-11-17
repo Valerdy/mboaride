@@ -90,6 +90,7 @@ $cmdPy = @"
 `$env:MBOARIDE_DSN = '$($dsn.Replace("'", "''"))'
 `$env:MBOARIDE_SECRET_KEY = '$($conf['SECRET_KEY'])'
 `$env:MBOARIDE_AGREMENT_AUTO = '1'
+`$env:MBOARIDE_SIMULATION = '1'
 Set-Location -LiteralPath '$Backend'
 & '$Py' -m uvicorn app.main:app --host 127.0.0.1 --port $PortApi
 "@

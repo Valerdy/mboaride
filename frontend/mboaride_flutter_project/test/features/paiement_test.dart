@@ -71,8 +71,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('À confirmer'), findsWidgets);
     expect(find.text('Confirmés'), findsOneWidget);
-    expect(find.text('Payer 336 FCFA'), findsOneWidget);
+    expect(find.text('Payer 350 FCFA'), findsOneWidget);
     expect(find.textContaining('réf. MBR-1A2B3C4D'), findsOneWidget);
+    // Trajet confirmé : point de ramassage, numéro du conducteur, suivi de la course.
+    expect(find.textContaining('Carrefour Kotto, devant la pharmacie'), findsWidgets);
+    expect(find.byTooltip('Appeler Armand'), findsOneWidget);
+    expect(find.textContaining('Suivre la course'), findsOneWidget);
 
     await tester.tap(find.text('Renoncer').first);
     await tester.pumpAndSettle();

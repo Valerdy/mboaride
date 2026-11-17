@@ -30,6 +30,10 @@ class ApiClient {
   final http.Client _client;
   final String _baseUrl;
 
+  /// Appelé quand l'API répond 401 (session expirée) : renouvellement ou retour à la
+  /// connexion. Branché par main.dart sur la session de l'application.
+  static Future<void> Function()? onUnauthorized;
+
   /// Racine de l'API, utile pour construire un lien à ouvrir (export CSV).
   String get baseUrl => _baseUrl;
   static const Duration _timeout = Duration(seconds: 10);
@@ -77,6 +81,8 @@ class ApiClient {
     final body = _decode(response);
     if (response.statusCode >= 200 && response.statusCode < 300) return body;
     if (response.statusCode == 401) {
+      final handler = onUnauthorized;
+      if (handler != null) unawaited(handler());
       throw ApiException(
         'Votre session a expiré, reconnectez-vous.',
         statusCode: 401,

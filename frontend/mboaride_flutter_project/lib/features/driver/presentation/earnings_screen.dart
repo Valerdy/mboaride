@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/mboa_theme.dart';
+import '../../payment/data/payment_repository.dart';
+import '../../wallet/wallet_screen.dart';
 import '../data/driver_repository.dart';
 import '../domain/driver.dart';
 import 'driver_widgets.dart';
@@ -8,9 +10,10 @@ import 'driver_widgets.dart';
 /// Gains et frais couverts (wireframe 11). L'objectif du document de vision est que les
 /// passagers couvrent au moins la moitié des frais de carburant du conducteur.
 class EarningsScreen extends StatefulWidget {
-  const EarningsScreen({super.key, required this.repository});
+  const EarningsScreen({super.key, required this.repository, this.walletRepository});
 
   final DriverRepository repository;
+  final PaymentRepository? walletRepository;
 
   @override
   State<EarningsScreen> createState() => _EarningsScreenState();
@@ -34,6 +37,16 @@ class _EarningsScreenState extends State<EarningsScreen> {
             Text(earnings.monthLabel, textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
+            if (widget.walletRepository != null) ...[
+              FilledButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => WalletScreen(repository: widget.walletRepository!, driver: true),
+                )),
+                icon: const Icon(Icons.account_balance_wallet_outlined),
+                label: const Text('Mon portefeuille : solde, virements'),
+              ),
+              const SizedBox(height: 12),
+            ],
             DriverCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -68,7 +81,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
                 ],
               ),
             ),
-            const SectionTitle('Paiements · Mobile Money'),
+            const SectionTitle('Courses · versées à la fin de la course, commission déduite'),
             DriverCard(
               padding: EdgeInsets.zero,
               child: Column(
@@ -83,7 +96,8 @@ class _EarningsScreenState extends State<EarningsScreen> {
             const SizedBox(height: 14),
             const InfoBanner(
               'Le carburant du trajet commun, détour compris, est partagé entre vous et les passagers à bord. '
-              'Plus votre voiture est pleine, plus vos frais sont couverts.',
+              'Plus votre voiture est pleine, plus vos frais sont couverts. MboaRide garde 10 % du prix de '
+              'chaque place et vous verse le reste quand tout l\'équipage a validé la fin de la course.',
               title: 'Comment votre part est calculée',
               warm: true,
             ),
@@ -140,8 +154,11 @@ class _EarningsScreenState extends State<EarningsScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(fcfa(payment.amountFcfa), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            if (payment.commissionFcfa > 0)
+              Text('commission ${fcfa(payment.commissionFcfa)}',
+                  style: const TextStyle(fontSize: 11.5, color: MboaColors.mutedText)),
             Text(
-              payment.received ? 'Reçu' : 'En attente',
+              payment.received ? 'Versé au portefeuille' : 'Fin de course à valider',
               style: TextStyle(fontSize: 12, color: payment.received ? MboaColors.green : DriverColors.sunText),
             ),
           ],

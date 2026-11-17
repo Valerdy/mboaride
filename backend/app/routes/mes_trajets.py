@@ -34,14 +34,19 @@ def mes_reservations(u: dict = Depends(utilisateur_courant),
     rows = conn.execute(
         """SELECT r.id_reservation, r.statut, r.date_trajet, r.heure_prise_en_charge, r.heure_arrivee_estimee,
                   r.prix_fcfa, r.niveau_cercle, d.depart_libelle, d.arrivee_libelle,
-                  t.id_trajet, uc.prenom AS conducteur, v.marque_modele, v.immatriculation,
-                  p.id_paiement, p.statut AS statut_paiement, p.operateur, p.telephone_payeur,
-                  p.reference_transaction, p.tentatives, p.motif_echec
+                  t.id_trajet, uc.prenom AS conducteur, uc.telephone AS conducteur_telephone,
+                  v.marque_modele, v.immatriculation, t.depart_libelle AS trajet_depart,
+                  t.point_ramassage, t.consignes_ramassage, r.fin_validee_le,
+                  p.id_paiement, p.statut AS statut_paiement, p.operateur, p.telephone_payeur, p.moyen,
+                  p.reference_transaction, p.tentatives, p.motif_echec, p.verse_le, e.note AS ma_note,
+                  c.statut AS statut_course
              FROM reservation r JOIN demande d USING (id_demande)
              JOIN trajet t ON t.id_trajet = r.id_trajet
              JOIN vehicule v ON v.id_vehicule = t.id_vehicule
              JOIN utilisateur uc ON uc.id_utilisateur = t.id_conducteur
              LEFT JOIN paiement p ON p.id_reservation = r.id_reservation
+             LEFT JOIN evaluation e ON e.id_reservation = r.id_reservation AND e.id_auteur = d.id_demandeur
+             LEFT JOIN course c ON c.id_trajet = r.id_trajet AND c.date_trajet = r.date_trajet
             WHERE d.id_demandeur = %s
             ORDER BY (r.statut = 'confirmee' AND p.statut IS DISTINCT FROM 'reussi') DESC,
                      r.date_trajet DESC, r.heure_prise_en_charge, r.id_reservation DESC
@@ -54,7 +59,17 @@ def mes_reservations(u: dict = Depends(utilisateur_courant),
         "prix_fcfa": r["prix_fcfa"], "cercle": r["niveau_cercle"],
         "conducteur": r["conducteur"], "vehicule": f"{r['marque_modele']} · {r['immatriculation']}",
         "id_paiement": r["id_paiement"], "statut_paiement": r["statut_paiement"],
-        "operateur": OPERATEURS.get(r["operateur"] or "", {}).get("libelle"),
+        "operateur": ("Portefeuille MboaRide" if r["moyen"] == "portefeuille"
+                      else OPERATEURS.get(r["operateur"] or "", {}).get("libelle")),
+        "moyen": r["moyen"],
+        # Numéro du conducteur : seulement une fois la place payée.
+        "conducteur_telephone": r["conducteur_telephone"] if r["statut_paiement"] == "reussi" else None,
+        "point_ramassage": ((r["point_ramassage"] if r["depart_libelle"] == r["trajet_depart"] else None)
+                            or r["depart_libelle"]),
+        "consignes_ramassage": r["consignes_ramassage"],
+        "statut_course": r["statut_course"] or "a_demarrer",
+        "fin_validee": r["fin_validee_le"] is not None, "ma_note": r["ma_note"],
+        "conducteur_paye": r["verse_le"] is not None,
         "telephone": r["telephone_payeur"], "reference": r["reference_transaction"],
         "tentatives_restantes": MAX_TENTATIVES - (r["tentatives"] or 0), "motif_echec": r["motif_echec"],
     } for r in rows]

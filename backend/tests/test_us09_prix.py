@@ -8,7 +8,13 @@ def _attendu(sql, id_demande, id_trajet, niveau):
     d = sql("SELECT * FROM demande WHERE id_demande = %s", (id_demande,))[0]
     t = sql("""SELECT t.*, v.conso_l_100km, v.climatise, v.non_fumeur FROM trajet t
                 JOIN vehicule v USING (id_vehicule) WHERE id_trajet = %s""", (id_trajet,))[0]
-    return moteur.detail_prix(moteur.driver_from_row(t), moteur.request_from_row(d), niveau).prix_fcfa
+    # Les passagers déjà à bord ce jour-là partagent les frais : chacun paie moins.
+    deja = 0
+    if d["date_unique"]:
+        deja = sql("SELECT count(*) n FROM reservation WHERE id_trajet = %s AND date_trajet = %s "
+                   "AND statut = 'confirmee'", (id_trajet, d["date_unique"]))[0]["n"]
+    return moteur.detail_prix(moteur.driver_from_row(t), moteur.request_from_row(d), niveau,
+                              places_reservees=deja).prix_fcfa
 
 
 def test_prix_detaille_identique_au_moteur(client, sql):
@@ -17,10 +23,12 @@ def test_prix_detaille_identique_au_moteur(client, sql):
     e = r.json()
     assert e["cercle"] == "organisation"
     assert e["prix_fcfa"] == _attendu(sql, 1, 1, 0)
-    assert e["commission_fcfa"] == 0
+    # Commission de 10 % sur tous les trajets, même entre collègues, comprise dans un prix rond.
+    assert e["commission_fcfa"] == e["prix_fcfa"] // 10 and e["prix_fcfa"] % 25 == 0
+    assert e["part_conducteur_fcfa"] == e["prix_fcfa"] - e["commission_fcfa"]
     libelles = [l["libelle"] for l in e["detail"]]
     assert libelles[0].startswith("Carburant du trajet commun et du détour")
-    assert "Partagé entre 2 occupant(s) à bord" in libelles[1]
+    assert "frais partagés entre 2 occupant(s) à bord" in libelles[1]
     assert e["detail"][-1]["montant_fcfa"] == e["prix_fcfa"]
     assert e["dans_le_budget"] and e["horaires_compatibles"] and e["confirmable"]
     assert e["prise_en_charge"] < e["arrivee_estimee"]
@@ -31,8 +39,7 @@ def test_interurbain_peage_et_commission(client, sql):
     assert e["cercle"] == "public"
     assert e["prix_fcfa"] == _attendu(sql, 5, 2, 2)
     assert any(l["libelle"] == "Péage" and l["montant_fcfa"] == 1000 for l in e["detail"])
-    assert e["commission_fcfa"] > 0
-    assert abs(e["commission_fcfa"] - e["prix_fcfa"] * 0.1 / 1.1) <= 1
+    assert e["commission_fcfa"] == e["prix_fcfa"] // 10 > 0
 
 
 def test_offre_hors_du_cercle_refusee(client):

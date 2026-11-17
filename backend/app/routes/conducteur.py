@@ -223,6 +223,11 @@ class NouveauTrajet(BaseModel):
     detour_max_km: float = Field(default=2.0, ge=0, le=20)
     peage_fcfa: int = Field(default=0, ge=0)
     points_depart: list[str] = Field(default_factory=list)
+    # Où et comment le conducteur prend ses passagers : obligatoire, c'est ce que le
+    # passager lit pour le retrouver (« Station Total de Logpom, côté boulangerie »).
+    point_ramassage: str = Field(min_length=5, max_length=160)
+    consignes_ramassage: str | None = Field(default=None, max_length=300)
+    attente_max_min: int = Field(default=5, ge=0, le=30)
 
     @model_validator(mode="after")
     def _quand(self):
@@ -268,12 +273,15 @@ def publier(body: NouveauTrajet, u: dict = Depends(utilisateur_courant),
     t = conn.execute(
         """INSERT INTO trajet (id_conducteur, id_vehicule, type_trajet, depart_libelle, depart_lat, depart_lon,
                arrivee_libelle, arrivee_lat, arrivee_lon, heure_depart, date_unique, jours_semaine,
-               places_offertes, detour_max_km, peage_fcfa, ouvert_partenaires, ouvert_public)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+               places_offertes, detour_max_km, peage_fcfa, ouvert_partenaires, ouvert_public,
+               point_ramassage, consignes_ramassage, attente_max_min)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           RETURNING *""",
         (u["id_utilisateur"], v["id_vehicule"], body.type_trajet, depart[0], depart[1], depart[2],
          arrivee[0], arrivee[1], arrivee[2], body.heure_depart, body.date_trajet, jours, body.places,
          body.detour_max_km, body.peage_fcfa if body.type_trajet == "interurbain" else 0,
-         u["accepte_partenaires"], _ouvert_public(conn, u))).fetchone()
+         u["accepte_partenaires"], _ouvert_public(conn, u), body.point_ramassage.strip(),
+         (body.consignes_ramassage or "").strip() or None, body.attente_max_min)).fetchone()
     if body.type_trajet == "interurbain":
         points = [depart[0], *[p for p in body.points_depart if p.strip()]]
         minute = moteur.minutes(body.heure_depart)
@@ -285,21 +293,58 @@ def publier(body: NouveauTrajet, u: dict = Depends(utilisateur_courant),
     return {"id_trajet": t["id_trajet"], "depart": depart[0], "arrivee": arrivee[0],
             "heure_depart": _hhmm(t["heure_depart"]), "jours_semaine": t["jours_semaine"],
             "date_unique": t["date_unique"], "places": t["places_offertes"],
-            "ouvert_partenaires": t["ouvert_partenaires"], "ouvert_public": t["ouvert_public"]}
+            "ouvert_partenaires": t["ouvert_partenaires"], "ouvert_public": t["ouvert_public"],
+            "point_ramassage": t["point_ramassage"], "consignes_ramassage": t["consignes_ramassage"],
+            "attente_max_min": t["attente_max_min"]}
+
+
+class Ramassage(BaseModel):
+    point_ramassage: str = Field(min_length=5, max_length=160)
+    consignes_ramassage: str | None = Field(default=None, max_length=300)
+    attente_max_min: int = Field(default=5, ge=0, le=30)
+
+
+@router.put("/trajets/{id_trajet}/ramassage")
+def preciser_ramassage(id_trajet: int, body: Ramassage, u: dict = Depends(utilisateur_courant),
+                       conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Préciser le point de ramassage d'un trajet déjà publié ; les passagers inscrits sont prévenus."""
+    t = conn.execute(
+        """UPDATE trajet SET point_ramassage = %s, consignes_ramassage = %s, attente_max_min = %s
+            WHERE id_trajet = %s AND id_conducteur = %s RETURNING *""",
+        (body.point_ramassage.strip(), (body.consignes_ramassage or "").strip() or None, body.attente_max_min,
+         id_trajet, u["id_utilisateur"])).fetchone()
+    if t is None:
+        raise HTTPException(404, "Trajet introuvable")
+    for r in conn.execute(
+            """SELECT DISTINCT d.id_demandeur FROM reservation r JOIN demande d USING (id_demande)
+                WHERE r.id_trajet = %s AND r.statut = 'confirmee' AND r.date_trajet >= CURRENT_DATE""",
+            (id_trajet,)).fetchall():
+        notifier(conn, r["id_demandeur"], "course",
+                 f"{u['prenom']} a précisé le point de ramassage : {t['point_ramassage']}"
+                 + (f" ({t['consignes_ramassage']})" if t["consignes_ramassage"] else "") + ".")
+    return {"id_trajet": id_trajet, "point_ramassage": t["point_ramassage"],
+            "consignes_ramassage": t["consignes_ramassage"], "attente_max_min": t["attente_max_min"]}
 
 
 # --- Prochain équipage ------------------------------------------------------------------------
 
 def _equipage(conn, t: dict, jour: date) -> dict:
+    # Passagers qui ont payé leur place : nom, téléphone et note, pour que le conducteur sache
+    # qui il prend et puisse l'appeler au point de ramassage.
     arrets = conn.execute(
-        """SELECT r.id_reservation, u.prenom AS passager, d.depart_libelle AS lieu, d.depart_lat AS lat,
-                  d.depart_lon AS lon, r.heure_prise_en_charge, r.heure_arrivee_estimee,
-                  d.arrivee_au_plus_tard, r.prix_fcfa
+        """SELECT r.id_reservation, u.prenom AS passager, u.nom, u.telephone, d.depart_libelle AS lieu,
+                  d.depart_lat AS lat, d.depart_lon AS lon, d.arrivee_libelle AS destination,
+                  r.heure_prise_en_charge, r.heure_arrivee_estimee, d.arrivee_au_plus_tard, r.prix_fcfa,
+                  r.fin_validee_le, d.id_eleve, n.note_moyenne, n.nb_evaluations
              FROM reservation r JOIN demande d USING (id_demande)
              JOIN utilisateur u ON u.id_utilisateur = d.id_demandeur
              JOIN paiement p ON p.id_reservation = r.id_reservation AND p.statut = 'reussi'
-            WHERE r.id_trajet = %s AND r.date_trajet = %s AND r.statut = 'confirmee'
+             LEFT JOIN LATERAL (SELECT round(avg(e.note), 1) AS note_moyenne, count(*) AS nb_evaluations
+                                  FROM evaluation e WHERE e.id_evalue = u.id_utilisateur) n ON TRUE
+            WHERE r.id_trajet = %s AND r.date_trajet = %s AND r.statut IN ('confirmee', 'terminee')
             ORDER BY r.heure_prise_en_charge, r.id_reservation""", (t["id_trajet"], jour)).fetchall()
+    course = conn.execute("SELECT statut FROM course WHERE id_trajet = %s AND date_trajet = %s",
+                          (t["id_trajet"], jour)).fetchone()
     arrivee = max((a["heure_arrivee_estimee"] for a in arrets), default=None)
     if arrivee is None:
         km = moteur.distance_km(t["depart_lat"], t["depart_lon"], t["arrivee_lat"], t["arrivee_lon"],
@@ -316,9 +361,16 @@ def _equipage(conn, t: dict, jour: date) -> dict:
         "depart": t["depart_libelle"], "arrivee": t["arrivee_libelle"],
         "heure_depart": _hhmm(t["heure_depart"]), "arrivee_estimee": arrivee_txt,
         "places": t["places_offertes"],
+        "point_ramassage": t.get("point_ramassage"), "consignes_ramassage": t.get("consignes_ramassage"),
+        "attente_max_min": t.get("attente_max_min", 5),
+        "statut_course": course["statut"] if course else "a_demarrer",
         "depart_lat": float(t["depart_lat"]), "depart_lon": float(t["depart_lon"]),
         "arrivee_lat": float(t["arrivee_lat"]), "arrivee_lon": float(t["arrivee_lon"]),
         "arrets": [{"id_reservation": a["id_reservation"], "passager": a["passager"], "lieu": a["lieu"],
+                    "nom": a["nom"], "telephone": a["telephone"], "destination": a["destination"],
+                    "note_moyenne": float(a["note_moyenne"]) if a["note_moyenne"] is not None else None,
+                    "nb_evaluations": a["nb_evaluations"], "eleve": a["id_eleve"] is not None,
+                    "fin_validee": a["fin_validee_le"] is not None,
                     "prise_en_charge": _hhmm(a["heure_prise_en_charge"]),
                     "arrivee": _hhmm(a["heure_arrivee_estimee"]),
                     "au_plus_tard": _hhmm(a["arrivee_au_plus_tard"]), "prix_fcfa": a["prix_fcfa"],
@@ -339,19 +391,28 @@ def prochain_equipage(u: dict = Depends(utilisateur_courant),
                            (u["id_utilisateur"],)).fetchall()
     maintenant = moteur.minutes(datetime.now().time())
     departs = []
+    courses = {(c["id_trajet"], c["date_trajet"]): c["statut"] for c in conn.execute(
+        "SELECT c.id_trajet, c.date_trajet, c.statut FROM course c JOIN trajet t USING (id_trajet) "
+        "WHERE t.id_conducteur = %s AND c.date_trajet >= CURRENT_DATE - 1", (u["id_utilisateur"],)).fetchall()}
     for t in trajets:
+        # Une course démarrée reste affichée jusqu'à son règlement, même après l'heure.
+        en_cours = [j for (i, j), st in courses.items() if i == t["id_trajet"] and st != "reglee"]
+        for jour in en_cours:
+            departs.append((False, jour, t["heure_depart"], t["id_trajet"], t))
         debut = date.today()
         if moteur.minutes(t["heure_depart"]) < maintenant - 60:   # parti depuis plus d'une heure
             debut += timedelta(days=1)
         for i in range(8):
             jour = debut + timedelta(days=i)
+            if jour in en_cours or courses.get((t["id_trajet"], jour)) == "reglee":
+                continue
             if not roule_le(t, jour) or conn.execute(
                     "SELECT 1 FROM indisponibilite_trajet WHERE id_trajet = %s AND date_trajet = %s",
                     (t["id_trajet"], jour)).fetchone():
                 continue
             pris = conn.execute("SELECT count(*) n FROM reservation r JOIN paiement p USING (id_reservation) "
-                                "WHERE r.id_trajet = %s AND r.date_trajet = %s AND r.statut = 'confirmee' "
-                                "AND p.statut = 'reussi'", (t["id_trajet"], jour)).fetchone()["n"]
+                                "WHERE r.id_trajet = %s AND r.date_trajet = %s "
+                                "AND r.statut IN ('confirmee', 'terminee') AND p.statut = 'reussi'", (t["id_trajet"], jour)).fetchone()["n"]
             departs.append((pris == 0, jour, t["heure_depart"], t["id_trajet"], t))
     if not departs:
         return None
@@ -409,14 +470,15 @@ def gains(u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = Dep
         """SELECT r.id_trajet, r.date_trajet, t.depart_libelle, t.arrivee_libelle, t.depart_lat, t.depart_lon,
                   t.arrivee_lat, t.arrivee_lon, t.type_trajet, v.conso_l_100km,
                   count(*) AS passagers, sum(p.montant_fcfa - p.commission_fcfa) AS montant,
-                  bool_and(p.statut = 'reussi') AS recu
+                  sum(p.commission_fcfa) AS commission, bool_and(p.verse_le IS NOT NULL) AS recu
              FROM reservation r JOIN trajet t USING (id_trajet) JOIN vehicule v USING (id_vehicule)
              JOIN paiement p USING (id_reservation)
-            WHERE t.id_conducteur = %s AND r.statut = 'confirmee'
+            WHERE t.id_conducteur = %s AND r.statut IN ('confirmee', 'terminee') AND p.statut = 'reussi'
             GROUP BY r.id_trajet, r.date_trajet, t.id_trajet, v.conso_l_100km
             ORDER BY r.date_trajet DESC LIMIT 20""", (u["id_utilisateur"],)).fetchall()
     paiements = [{"date": f"{r['date_trajet']:%d/%m}", "trajet": f"{r['depart_libelle']} → {r['arrivee_libelle']}",
-                  "passagers": r["passagers"], "montant_fcfa": int(r["montant"] or 0), "recu": bool(r["recu"])}
+                  "passagers": r["passagers"], "montant_fcfa": int(r["montant"] or 0),
+                  "commission_fcfa": int(r["commission"] or 0), "recu": bool(r["recu"])}
                  for r in rows]
     carburant = 0
     recu_dernier = 0
@@ -455,7 +517,7 @@ def evaluer_passagers(body: Evaluation, u: dict = Depends(utilisateur_courant),
     resas = {r["prenom"]: r for r in conn.execute(
         """SELECT r.id_reservation, d.id_demandeur, us.prenom FROM reservation r JOIN demande d USING (id_demande)
              JOIN utilisateur us ON us.id_utilisateur = d.id_demandeur
-            WHERE r.id_trajet = %s AND r.date_trajet = %s AND r.statut = 'confirmee'""",
+            WHERE r.id_trajet = %s AND r.date_trajet = %s AND r.statut IN ('confirmee', 'terminee')""",
         (body.id_trajet, body.date_trajet)).fetchall()}
     commentaire = "; ".join(body.signalements)[:500] or None
     enregistrees = 0

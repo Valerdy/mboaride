@@ -29,6 +29,18 @@ abstract class DriverRepository {
 
   Future<void> reportDelay(Crew crew, int minutes);
 
+  /// Démarrer la course : les passagers payés sont prévenus et peuvent la suivre.
+  Future<CourseState> startCourse(Crew crew);
+
+  /// Arrivé à destination : les passagers sont invités à valider la fin de la course.
+  Future<CourseState> arriveCourse(Crew crew);
+
+  /// Validations des passagers et règlement (versement au portefeuille).
+  Future<CourseState> courseState(Crew crew);
+
+  /// Préciser le point de ramassage d'un trajet publié ; les passagers sont prévenus.
+  Future<void> setMeetingPoint(int tripId, {required String point, String? instructions, int waitMinutes = 5});
+
   /// Annulation (US07) : les passagers sont prévenus et réaffectés automatiquement.
   Future<CancellationResult> cancelTrip(
     Crew crew,
@@ -99,6 +111,10 @@ class ApiDriverRepository implements DriverRepository {
       fromLng: d(json['depart_lon']),
       toLat: d(json['arrivee_lat']),
       toLng: d(json['arrivee_lon']),
+      meetingPoint: json['point_ramassage'] as String?,
+      meetingInstructions: json['consignes_ramassage'] as String?,
+      waitMinutes: (json['attente_max_min'] as num?)?.toInt() ?? 5,
+      courseStatus: CourseStatus.fromCode(json['statut_course'] as String?),
       stops: [
         for (final s in (json['arrets'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>())
           CrewStop(
@@ -110,6 +126,13 @@ class ApiDriverRepository implements DriverRepository {
             priceFcfa: (s['prix_fcfa'] as num).toInt(),
             lat: d(s['lat']),
             lng: d(s['lon']),
+            lastName: s['nom'] as String?,
+            phone: s['telephone'] as String?,
+            destination: s['destination'] as String?,
+            rating: d(s['note_moyenne']),
+            ratingCount: (s['nb_evaluations'] as num?)?.toInt() ?? 0,
+            student: s['eleve'] == true,
+            endValidated: s['fin_validee'] == true,
           ),
       ],
     );
@@ -252,6 +275,9 @@ class ApiDriverRepository implements DriverRepository {
       'detour_max_km': plan.maxDetourKm,
       'peage_fcfa': plan.tollsFcfa,
       'points_depart': plan.pickupPoints,
+      'point_ramassage': plan.meetingPoint.trim(),
+      if (plan.meetingInstructions.trim().isNotEmpty) 'consignes_ramassage': plan.meetingInstructions.trim(),
+      'attente_max_min': plan.waitMinutes,
     });
   }
 
@@ -270,6 +296,30 @@ class ApiDriverRepository implements DriverRepository {
     await _client.post('$_base/retard', {'id_trajet': crew.tripId, 'date_trajet': crew.date, 'minutes': minutes});
   }
 
+  Map<String, dynamic> _day(Crew crew) => {'id_trajet': crew.tripId, 'date_trajet': crew.date};
+
+  @override
+  Future<CourseState> startCourse(Crew crew) async =>
+      CourseState.fromJson(await _client.post('$_base/course/demarrer', _day(crew)) as Map<String, dynamic>);
+
+  @override
+  Future<CourseState> arriveCourse(Crew crew) async =>
+      CourseState.fromJson(await _client.post('$_base/course/arrivee', _day(crew)) as Map<String, dynamic>);
+
+  @override
+  Future<CourseState> courseState(Crew crew) async => CourseState.fromJson(
+    await _client.get('$_base/course?id_trajet=${crew.tripId}&date_trajet=${crew.date}') as Map<String, dynamic>,
+  );
+
+  @override
+  Future<void> setMeetingPoint(int tripId, {required String point, String? instructions, int waitMinutes = 5}) async {
+    await _client.put('$_base/trajets/$tripId/ramassage', {
+      'point_ramassage': point.trim(),
+      if (instructions != null && instructions.trim().isNotEmpty) 'consignes_ramassage': instructions.trim(),
+      'attente_max_min': waitMinutes,
+    });
+  }
+
   @override
   Future<Earnings> earnings() async {
     final body = await _client.get('$_base/gains') as Map<String, dynamic>;
@@ -285,6 +335,7 @@ class ApiDriverRepository implements DriverRepository {
             passengers: (p['passagers'] as num).toInt(),
             amountFcfa: (p['montant_fcfa'] as num).toInt(),
             received: p['recu'] == true,
+            commissionFcfa: (p['commission_fcfa'] as num?)?.toInt() ?? 0,
           ),
       ],
     );
@@ -318,8 +369,12 @@ class FakeDriverRepository implements DriverRepository {
 
   final Duration delay;
   Approval _approval;
-  final Crew _crew = demoCrew();
+  Crew _crew = demoCrew();
   bool _cancelled = false;
+  CourseStatus _course = CourseStatus.notStarted;
+
+  /// Passagers qui ont validé la fin de la course (simulé).
+  final Set<String> validated = {};
   final List<TripPlan> published = [];
   final List<int> reportedDelays = [];
   List<PassengerRating> lastRatings = const [];
@@ -387,13 +442,18 @@ class FakeDriverRepository implements DriverRepository {
     fromLng: 9.7740,
     toLat: 4.0700,
     toLng: 9.6600,
+    meetingPoint: 'Station Total de Logpom, côté boulangerie',
+    meetingInstructions: 'Berline grise LT 482 AB, je klaxonne deux fois',
     stops: const [
       CrewStop(passenger: 'Grâce', place: 'Kotto', pickupTime: '06:58', arrivalTime: '07:30',
-          latestArrival: '07:45', priceFcfa: 252, lat: 4.0711, lng: 9.7590),
+          latestArrival: '07:45', priceFcfa: 275, lat: 4.0711, lng: 9.7590, lastName: 'Ebolo',
+          phone: '+237690000201', destination: 'Bonabéri', rating: 4.8, ratingCount: 12),
       CrewStop(passenger: 'Paul', place: 'Ndokoti', pickupTime: '07:05', arrivalTime: '07:30',
-          latestArrival: '07:35', priceFcfa: 252, lat: 4.0470, lng: 9.7340),
+          latestArrival: '07:35', priceFcfa: 275, lat: 4.0470, lng: 9.7340, lastName: 'Mbarga',
+          phone: '+237690000202', destination: 'Bonabéri', rating: 4.5, ratingCount: 4),
       CrewStop(passenger: 'Nadège', place: 'Deido', pickupTime: '07:12', arrivalTime: '07:30',
-          latestArrival: '07:50', priceFcfa: 252, lat: 4.0580, lng: 9.7050),
+          latestArrival: '07:50', priceFcfa: 275, lat: 4.0580, lng: 9.7050, lastName: 'Kamga',
+          phone: '+237690000203', destination: 'Bonabéri'),
     ],
   );
 
@@ -508,6 +568,62 @@ class FakeDriverRepository implements DriverRepository {
     reportedDelays.add(minutes);
   }
 
+  CourseState _state() {
+    final all = _crew.stops.every((s) => validated.contains(s.passenger));
+    final total = _crew.stops.fold(0, (sum, s) => sum + s.priceFcfa);
+    final commission = _crew.stops.fold(0, (sum, s) => sum + s.priceFcfa ~/ 10);
+    return CourseState(
+      status: all ? CourseStatus.settled : _course,
+      passengers: [
+        for (final s in _crew.stops)
+          CoursePassenger(
+            firstName: s.passenger,
+            lastName: s.lastName,
+            validated: validated.contains(s.passenger),
+            rating: validated.contains(s.passenger) ? 5 : null,
+          ),
+      ],
+      totalPaidFcfa: total,
+      commissionFcfa: commission,
+      driverAmountFcfa: total - commission,
+      paidOut: all,
+    );
+  }
+
+  @override
+  Future<CourseState> startCourse(Crew crew) async {
+    await _wait();
+    if (_course == CourseStatus.notStarted) _course = CourseStatus.running;
+    return _state();
+  }
+
+  @override
+  Future<CourseState> arriveCourse(Crew crew) async {
+    await _wait();
+    if (_course == CourseStatus.notStarted) throw ApiException("Démarrez d'abord la course", statusCode: 409);
+    _course = CourseStatus.arrived;
+    return _state();
+  }
+
+  @override
+  Future<CourseState> courseState(Crew crew) async {
+    await _wait();
+    return _state();
+  }
+
+  @override
+  Future<void> setMeetingPoint(int tripId, {required String point, String? instructions, int waitMinutes = 5}) async {
+    await _wait();
+    if (point.trim().length < 5) throw ApiException('Précisez le point de ramassage.', statusCode: 422);
+    _crew = Crew(
+      tripId: _crew.tripId, date: _crew.date, dayLabel: _crew.dayLabel, departure: _crew.departure,
+      from: _crew.from, to: _crew.to, seatsTotal: _crew.seatsTotal, stops: _crew.stops, arrival: _crew.arrival,
+      fromLat: _crew.fromLat, fromLng: _crew.fromLng, toLat: _crew.toLat, toLng: _crew.toLng,
+      meetingPoint: point.trim(), meetingInstructions: instructions, waitMinutes: waitMinutes,
+      courseStatus: _course,
+    );
+  }
+
   @override
   Future<CancellationResult> cancelTrip(
     Crew crew,
@@ -532,12 +648,15 @@ class FakeDriverRepository implements DriverRepository {
     await _wait();
     return const Earnings(
       monthLabel: 'Novembre 2026',
-      lastTripReceivedFcfa: 756,
+      lastTripReceivedFcfa: 744,
       lastTripFuelFcfa: 1008,
       payments: [
-        Payment(dateLabel: 'Lun. 9 nov.', route: 'Logpom → Bonabéri', passengers: 3, amountFcfa: 756, received: true),
-        Payment(dateLabel: 'Mar. 10 nov.', route: 'Logpom → Bonabéri', passengers: 2, amountFcfa: 504, received: true),
-        Payment(dateLabel: 'Mer. 11 nov.', route: 'Logpom → Bonabéri', passengers: 3, amountFcfa: 756, received: false),
+        Payment(dateLabel: 'Lun. 9 nov.', route: 'Logpom → Bonabéri', passengers: 3, amountFcfa: 744,
+            received: true, commissionFcfa: 81),
+        Payment(dateLabel: 'Mar. 10 nov.', route: 'Logpom → Bonabéri', passengers: 2, amountFcfa: 540,
+            received: true, commissionFcfa: 60),
+        Payment(dateLabel: 'Mer. 11 nov.', route: 'Logpom → Bonabéri', passengers: 3, amountFcfa: 744,
+            received: false, commissionFcfa: 81),
       ],
     );
   }
