@@ -35,6 +35,10 @@ SECRET_KEY = (os.environ.get("MBOARIDE_SECRET_KEY")
 # seul un jeton signé par l'API Node est alors accepté.
 DEMO_AUTH = os.environ.get("MBOARIDE_DEMO_AUTH", "1") not in ("0", "false", "False")
 
+# Démonstration locale : une pièce d'agrément déposée est validée aussitôt (aucun agent
+# MboaRide ne vérifie encore les pièces). Désactivé par défaut, comme en production.
+AGREMENT_AUTO = os.environ.get("MBOARIDE_AGREMENT_AUTO", "0") in ("1", "true", "True")
+
 # Hypothèses du bilan développement durable (mêmes valeurs que le bilan).
 CONSO_REFERENCE_L100 = 8.0      # voiture que le passager aurait prise seul
 CO2_KG_PAR_LITRE = 2.31         # combustion d'un litre d'essence
