@@ -49,8 +49,17 @@ RESULTATS = {
 
 
 class Initiation(BaseModel):
+    """Un compte enregistré (`id_compte`), ou un opérateur et un numéro saisis pour ce paiement."""
+    id_compte: int | None = None
+    operateur: str | None = Field(default=None, pattern="^(mtn|orange)$")
+    telephone: str | None = None
+
+
+class NouveauCompte(BaseModel):
     operateur: str = Field(pattern="^(mtn|orange)$")
     telephone: str
+    titulaire: str = Field(min_length=2, max_length=80)
+    par_defaut: bool = True
 
 
 class Reponse(BaseModel):
@@ -64,6 +73,58 @@ def normaliser(telephone: str) -> str:
     if not m:
         raise HTTPException(422, "Numéro camerounais attendu : 6 suivi de 8 chiffres")
     return m.group(1)
+
+
+def verifier_numero(operateur: str, telephone: str) -> str:
+    """Numéro normalisé (9 chiffres), qui doit appartenir à l'opérateur choisi."""
+    numero = normaliser(telephone)
+    op = OPERATEURS[operateur]
+    if not numero.startswith(op["prefixes"]):
+        autre = next((o["libelle"] for k, o in OPERATEURS.items() if numero.startswith(o["prefixes"])), None)
+        raise HTTPException(422, f"Ce numéro n'est pas un numéro {op['libelle']}"
+                                 + (f" (il semble être {autre})" if autre else ""))
+    return numero
+
+
+def _compte(c: dict) -> dict:
+    return {"id_compte": c["id_compte"], "operateur": c["operateur"],
+            "operateur_libelle": OPERATEURS[c["operateur"]]["libelle"], "telephone": c["telephone"],
+            "titulaire": c["titulaire"], "par_defaut": c["par_defaut"]}
+
+
+@router.get("/moi/comptes-mobile-money")
+def mes_comptes(u: dict = Depends(utilisateur_courant),
+                conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+    rows = conn.execute("SELECT * FROM compte_mobile_money WHERE id_utilisateur = %s "
+                        "ORDER BY par_defaut DESC, id_compte", (u["id_utilisateur"],)).fetchall()
+    return [_compte(c) for c in rows]
+
+
+@router.post("/moi/comptes-mobile-money", status_code=201)
+def ajouter_compte(body: NouveauCompte, u: dict = Depends(utilisateur_courant),
+                   conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Enregistre l'opérateur, le numéro et le titulaire. Jamais le code secret."""
+    numero = "+237" + verifier_numero(body.operateur, body.telephone)
+    premier = conn.execute("SELECT 1 FROM compte_mobile_money WHERE id_utilisateur = %s",
+                           (u["id_utilisateur"],)).fetchone() is None
+    if body.par_defaut or premier:
+        conn.execute("UPDATE compte_mobile_money SET par_defaut = FALSE WHERE id_utilisateur = %s",
+                     (u["id_utilisateur"],))
+    c = conn.execute(
+        """INSERT INTO compte_mobile_money (id_utilisateur, operateur, telephone, titulaire, par_defaut)
+           VALUES (%s, %s, %s, %s, %s)
+           ON CONFLICT (id_utilisateur, telephone) DO UPDATE
+              SET operateur = EXCLUDED.operateur, titulaire = EXCLUDED.titulaire, par_defaut = EXCLUDED.par_defaut
+           RETURNING *""",
+        (u["id_utilisateur"], body.operateur, numero, body.titulaire.strip(), body.par_defaut or premier)).fetchone()
+    return _compte(c)
+
+
+@router.delete("/moi/comptes-mobile-money/{id_compte}", status_code=204)
+def supprimer_compte(id_compte: int, u: dict = Depends(utilisateur_courant),
+                     conn: psycopg.Connection = Depends(get_conn)) -> None:
+    conn.execute("DELETE FROM compte_mobile_money WHERE id_compte = %s AND id_utilisateur = %s",
+                 (id_compte, u["id_utilisateur"]))
 
 
 def _paiement(conn, id_paiement: int, u: dict) -> dict:
@@ -119,17 +180,23 @@ def initier(id_paiement: int, body: Initiation, u: dict = Depends(utilisateur_co
         raise HTTPException(409, "Réservation annulée : rien à payer")
     if p["tentatives"] >= MAX_TENTATIVES:
         raise HTTPException(409, "Nombre maximal de tentatives atteint : contactez le support")
-    numero = normaliser(body.telephone)
-    op = OPERATEURS[body.operateur]
-    if not numero.startswith(op["prefixes"]):
-        autre = next((o["libelle"] for k, o in OPERATEURS.items() if numero.startswith(o["prefixes"])), None)
-        raise HTTPException(422, f"Ce numéro n'est pas un numéro {op['libelle']}"
-                                 + (f" (il semble être {autre})" if autre else ""))
+    if body.id_compte is not None:
+        c = conn.execute("SELECT * FROM compte_mobile_money WHERE id_compte = %s AND id_utilisateur = %s",
+                         (body.id_compte, u["id_utilisateur"])).fetchone()
+        if c is None:
+            raise HTTPException(404, "Compte Mobile Money introuvable")
+        operateur, telephone = c["operateur"], c["telephone"]
+    elif body.operateur and body.telephone:
+        operateur, telephone = body.operateur, body.telephone
+    else:
+        raise HTTPException(422, "Choisissez un compte Mobile Money enregistré")
+    numero = verifier_numero(operateur, telephone)
+    op = OPERATEURS[operateur]
     reference = "MBR-" + secrets.token_hex(4).upper()
     conn.execute(
         """UPDATE paiement SET operateur = %s, telephone_payeur = %s, reference_transaction = %s,
                statut = 'en_attente', initie_le = now(), tentatives = tentatives + 1, motif_echec = NULL
-           WHERE id_paiement = %s""", (body.operateur, "+237" + numero, reference, id_paiement))
+           WHERE id_paiement = %s""", (operateur, "+237" + numero, reference, id_paiement))
     return {**recu(_paiement(conn, id_paiement, u)),
             "etape": "validation_telephone",
             "message": f"Une demande de paiement de {p['montant_fcfa']} FCFA a été envoyée au "
@@ -149,7 +216,13 @@ def reponse_operateur(id_paiement: int, body: Reponse, u: dict = Depends(utilisa
         conn.execute("UPDATE paiement SET statut = 'reussi', paye_le = now() WHERE id_paiement = %s",
                      (id_paiement,))
         notifier(conn, u["id_utilisateur"], "paiement",
-                 f"Paiement de {p['montant_fcfa']} FCFA reçu (réf. {p['reference_transaction']}).")
+                 f"Paiement de {p['montant_fcfa']} FCFA reçu (réf. {p['reference_transaction']}) : "
+                 f"votre trajet du {p['date_trajet']:%d/%m} avec {p['conducteur']} est confirmé.")
+        conducteur = conn.execute("SELECT t.id_conducteur FROM reservation r JOIN trajet t USING (id_trajet) "
+                                  "WHERE r.id_reservation = %s", (p["id_reservation"],)).fetchone()
+        notifier(conn, conducteur["id_conducteur"], "paiement",
+                 f"{u['prenom']} a payé sa place du {p['date_trajet']:%d/%m} "
+                 f"({p['depart_libelle']} → {p['arrivee_libelle']}) : passager confirmé.")
     else:
         conn.execute("UPDATE paiement SET statut = 'echoue', motif_echec = %s WHERE id_paiement = %s",
                      (motif, id_paiement))

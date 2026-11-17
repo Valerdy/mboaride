@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../../app_services.dart';
 import '../../../core/api_client.dart';
 import '../../../core/mboa_theme.dart';
 import '../data/offers_repository.dart';
 import '../domain/offer.dart';
+import '../../payment/data/payment_repository.dart';
+import '../../payment/presentation/payment_screen.dart';
 
 /// US09 · Connaître le prix avant de confirmer.
 ///
@@ -16,9 +19,13 @@ class PriceConfirmationScreen extends StatefulWidget {
     required this.repository,
     required this.offer,
     required this.date,
+    this.payments,
   });
 
   final OffersRepository repository;
+
+  /// Paiement Mobile Money qui confirme le trajet ; par défaut celui de l'application.
+  final PaymentRepository? payments;
   final Offer offer;
   final DateTime date;
 
@@ -33,6 +40,7 @@ class _PriceConfirmationScreenState extends State<PriceConfirmationScreen> {
   bool _booking = false;
   String? _warning;
   Booking? _booked;
+  bool _paid = false;
 
   Future<void> _confirm() async {
     setState(() {
@@ -51,6 +59,7 @@ class _PriceConfirmationScreenState extends State<PriceConfirmationScreen> {
         _booked = booking;
         _booking = false;
       });
+      await _pay();
     } on PriceChangedException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -67,6 +76,30 @@ class _PriceConfirmationScreenState extends State<PriceConfirmationScreen> {
         _warning = error.message;
         _booking = false;
       });
+    }
+  }
+
+  /// La place est retenue : le paiement confirme le trajet (US10).
+  Future<void> _pay() async {
+    final booking = _booked;
+    if (booking == null || booking.paymentId == null) return;
+    final outcome = await Navigator.of(context).push<PaymentOutcome>(
+      MaterialPageRoute(
+        builder: (_) => PaymentScreen(
+          repository: widget.payments ?? AppServices.payments,
+          paymentId: booking.paymentId!,
+          amountFcfa: booking.priceFcfa,
+          route: widget.offer.route,
+          driver: widget.offer.driver,
+          date: widget.date,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (outcome == PaymentOutcome.paid) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() => _paid = false);
     }
   }
 
@@ -213,7 +246,7 @@ class _PriceConfirmationScreenState extends State<PriceConfirmationScreen> {
           ],
           if (_booked != null) ...[
             const SizedBox(height: 14),
-            _Success(booking: _booked!),
+            _Success(booking: _booked!, paid: _paid),
           ],
           const SizedBox(height: 20),
           if (_booked == null)
@@ -230,11 +263,19 @@ class _PriceConfirmationScreenState extends State<PriceConfirmationScreen> {
                     )
                   : Text('Confirmer · ${formatFcfa(_priceFcfa)}'),
             )
-          else
-            FilledButton(
+          else ...[
+            if (_booked!.paymentId != null)
+              FilledButton.icon(
+                onPressed: _pay,
+                icon: const Icon(Icons.phone_iphone),
+                label: Text('Payer ${formatFcfa(_booked!.priceFcfa)} pour confirmer'),
+              ),
+            const SizedBox(height: 10),
+            OutlinedButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Terminer'),
+              child: const Text('Plus tard : voir dans « Mes trajets »'),
             ),
+          ],
           const SizedBox(height: 10),
           if (_booked == null)
             OutlinedButton(
@@ -339,9 +380,10 @@ class _Banner extends StatelessWidget {
 }
 
 class _Success extends StatelessWidget {
-  const _Success({required this.booking});
+  const _Success({required this.booking, this.paid = false});
 
   final Booking booking;
+  final bool paid;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -359,7 +401,9 @@ class _Success extends StatelessWidget {
             const Icon(Icons.check_circle, color: MboaColors.green),
             const SizedBox(width: 8),
             Text(
-              'Trajet confirmé · ${formatFcfa(booking.priceFcfa)}',
+              paid
+                  ? 'Trajet confirmé · ${formatFcfa(booking.priceFcfa)}'
+                  : 'Place retenue · à confirmer en payant',
               style: const TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,

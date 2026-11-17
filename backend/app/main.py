@@ -14,8 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from . import config, moteur
 from .config import RACINE
 from .db import get_conn
-from .routes import (annulation, banc, conducteur, demandes, demo, eleves, organisation, paiement,
-                     preferences, prix, profil, voyages)
+from .routes import (annulation, banc, conducteur, demandes, demo, eleves, mes_trajets, organisation,
+                     paiement, preferences, prix, profil, voyages)
 from .securite import utilisateur_courant
 
 app = FastAPI(title="MboaRide", version="0.3.0",
@@ -35,6 +35,7 @@ app.include_router(banc.router)
 app.include_router(profil.router)
 app.include_router(demandes.router)
 app.include_router(conducteur.router)
+app.include_router(mes_trajets.router)
 
 WEB = RACINE / "web"
 

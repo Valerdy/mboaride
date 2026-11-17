@@ -58,6 +58,9 @@ class ApiClient {
     () => _client.put(_uri(path), headers: _headers(), body: jsonEncode(body)),
   );
 
+  Future<dynamic> delete(String path) =>
+      _send(() => _client.delete(_uri(path), headers: _headers()));
+
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
 
   Future<dynamic> _send(Future<http.Response> Function() call) async {

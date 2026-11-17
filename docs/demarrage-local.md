@@ -91,19 +91,23 @@ Console web : http://localhost:8000 (documentation de l'API : http://localhost:8
 6. « Où allez-vous ? » : départ Kotto, arrivée Bonanjo, fenêtre d'arrivée 07:20 à 07:55,
    un jour où le chauffeur roule (demain si c'est un jour de semaine), prix maximal 800 FCFA.
 7. L'offre du chauffeur apparaît, avec le prix détaillé calculé par le moteur d'agents :
-   la confirmer.
+   la choisir puis « Confirmer ». La place est retenue et l'écran de paiement s'ouvre.
+8. Paiement Mobile Money (fictif) : enregistrer son compte une fois (opérateur MTN ou
+   Orange, numéro de cet opérateur, nom du titulaire), puis « Payer ». Saisir un code
+   secret de 4 chiffres quelconque et « Valider » : aucun montant n'est débité et le code
+   n'est ni envoyé ni enregistré. Le trajet passe dans « Mes trajets », rubrique
+   « Confirmés » ; non payé, il reste « À confirmer » (bouton « Payer » ou « Renoncer »).
 
 **Retour au chauffeur**
 
-8. Tirer pour rafraîchir l'accueil : l'équipage montre le client, son point et son heure
-   de prise en charge. « Signaler un retard » prévient le client ; « Annuler le trajet »
+9. Rouvrir l'espace conducteur : l'équipage montre le client qui a payé, son point et son
+   heure de prise en charge (un trajet non payé n'y apparaît pas). « Signaler un retard » prévient le client ; « Annuler le trajet »
    le réaffecte à un autre conducteur s'il en existe un.
 
 **Console web (navigateur)**
 
-9. Choisir le client dans « Connecté en tant que » : sa réservation et son paiement
-   Mobile Money (simulé) apparaissent ; payer, puis voir le paiement « reçu » dans les
-   gains du chauffeur.
+10. Choisir le client dans « Connecté en tant que » : sa réservation et son paiement
+    apparaissent ; le paiement est « reçu » dans les gains du chauffeur.
 
 ## En cas de problème
 
