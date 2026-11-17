@@ -5,8 +5,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../app_services.dart';
 import '../core/api_client.dart';
-import '../core/app_config.dart';
 import '../core/auth_session.dart';
+import '../core/road_routing.dart';
 import '../features/children/presentation/children_screen.dart';
 import '../features/driver/presentation/driver_shell.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
@@ -33,6 +33,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   final FocusNode _originFocus = FocusNode();
   final FocusNode _destFocus = FocusNode();
   final MapController _mapController = MapController();
+  final RoadRouting _roadRouting = RoadRouting();
 
   TimeOfDay _windowStart = const TimeOfDay(hour: 7, minute: 30);
   TimeOfDay _windowEnd = const TimeOfDay(hour: 8, minute: 0);
@@ -177,83 +178,27 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
     }
   }
 
+  /// Tracé sur les routes de Douala (OpenStreetMap, OSRM), jamais à vol d'oiseau : sans
+  /// itinéraire routier disponible, la carte montre seulement le départ et l'arrivée.
   Future<void> _fetchOsrmRoute() async {
     if (_originCoords == null || _destCoords == null) return;
-    setState(() => _isRouteLoading = true);
-
-    try {
-      final response = await http.post(
-        Uri.parse('${AppConfig.authBaseUrl}/routes/route'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.token.isNotEmpty) 'Authorization': 'Bearer ${widget.token}',
-        },
-        body: jsonEncode({
-          'from': {'lat': _originCoords!.latitude, 'lng': _originCoords!.longitude},
-          'to': {'lat': _destCoords!.latitude, 'lng': _destCoords!.longitude},
-          'include_geometry': true,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final geometry = data['geometry'];
-        final double distanceKm = (data['distance_m'] ?? 0) / 1000.0;
-        final int durationMin = ((data['duration_s'] ?? 0) / 60).round();
-
-        if (geometry != null && geometry['coordinates'] != null) {
-          final List coords = geometry['coordinates'];
-          final points = coords.map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
-
-          setState(() {
-            _routePoints = points;
-            _routeSummary = '${distanceKm.toStringAsFixed(1)} km • ~$durationMin min';
-          });
-          _fitMapBounds();
-          return;
-        }
-      }
-    } catch (e) {
-      debugPrint('Backend indisponible, bascule vers OSRM public: $e');
-    }
-
-    try {
-      final osrmUrl = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/'
-            '${_originCoords!.longitude},${_originCoords!.latitude};'
-            '${_destCoords!.longitude},${_destCoords!.latitude}'
-            '?overview=full&geometries=geojson',
-      );
-      final osrmRes = await http.get(osrmUrl);
-
-      if (osrmRes.statusCode == 200) {
-        final data = jsonDecode(osrmRes.body);
-        final routes = data['routes'] as List?;
-        if (routes != null && routes.isNotEmpty) {
-          final route = routes[0];
-          final List coords = route['geometry']['coordinates'];
-          final double distanceKm = (route['distance'] ?? 0) / 1000.0;
-          final int durationMin = ((route['duration'] ?? 0) / 60).round();
-
-          final points = coords.map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
-
-          setState(() {
-            _routePoints = points;
-            _routeSummary = '${distanceKm.toStringAsFixed(1)} km • ~$durationMin min';
-          });
-          _fitMapBounds();
-          return;
-        }
-      }
-    } catch (e) {
-      debugPrint('Erreur OSRM public: $e');
-    } finally {
-      if (mounted) setState(() => _isRouteLoading = false);
-    }
-
+    final from = _originCoords!, to = _destCoords!;
     setState(() {
-      _routePoints = [_originCoords!, _destCoords!];
-      _routeSummary = 'Itinéraire direct';
+      _isRouteLoading = true;
+      _routePoints = [];
+      _routeSummary = "Calcul de l'itinéraire par la route…";
+    });
+    final route = await _roadRouting.route([from, to]);
+    if (!mounted || from != _originCoords || to != _destCoords) return; // points changés entre-temps
+    setState(() {
+      _isRouteLoading = false;
+      if (route == null) {
+        _routePoints = [];
+        _routeSummary = 'Itinéraire routier indisponible pour le moment';
+      } else {
+        _routePoints = route.points;
+        _routeSummary = '${route.distanceKm.toStringAsFixed(1)} km • ~${route.durationMin} min par la route';
+      }
     });
     _fitMapBounds();
   }

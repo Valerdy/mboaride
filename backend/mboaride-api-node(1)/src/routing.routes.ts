@@ -16,7 +16,10 @@ const latLng = z
     });
 const trip = z.object({ origin: latLng, destination: latLng });
 
-const routeSchema = z.object({ from: latLng, to: latLng, include_geometry: z.boolean().default(true) });
+/** `via` : étapes intermédiaires (par exemple les points de prise en charge d'un équipage). */
+const routeSchema = z.object({
+  from: latLng, to: latLng, via: z.array(latLng).max(10).default([]), include_geometry: z.boolean().default(true),
+});
 const detourSchema = z.object({
   driver: trip, pickup: latLng, dropoff: latLng, max_detour_s: z.number().int().nonnegative().optional(),
 });
@@ -80,8 +83,12 @@ export function routingRouter(db: Knex, osrm: OsrmClient): Router {
   /** Itinéraire entre deux points : distance, durée, tracé GeoJSON pour la carte Leaflet (US08). */
   router.post("/route", async (req, res) => {
     const d = routeSchema.parse(req.body);
-    const r = await osrm.route([d.from, d.to], { geometry: d.include_geometry });
-    res.json({ distance_m: r.distance_m, duration_s: r.duration_s, geometry: r.geometry ?? null });
+    const r = await osrm.route([d.from, ...d.via, d.to], { geometry: d.include_geometry });
+    // estimated : OSRM n'a pas répondu, le tracé n'est qu'une ligne droite entre les points.
+    res.json({
+      distance_m: r.distance_m, duration_s: r.duration_s, geometry: r.geometry ?? null,
+      estimated: Boolean(r.estimated), legs: r.legs,
+    });
   });
 
   /** Détour d'un conducteur pour un passager (agent conducteur, US03/US05). */

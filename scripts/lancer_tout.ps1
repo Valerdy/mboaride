@@ -76,7 +76,7 @@ $cmdNode = @"
 `$env:EXPOSE_DEV_CODE = '1'
 `$env:ACCESS_TOKEN_MINUTES = '720'
 `$env:OSRM_URL = 'https://router.project-osrm.org'
-`$env:OSRM_TIMEOUT_MS = '4000'
+`$env:OSRM_TIMEOUT_MS = '12000'  # le serveur public met plusieurs secondes depuis le Cameroun
 Set-Location -LiteralPath '$Node'
 npm run dev
 "@

@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/mboa_theme.dart';
+import '../../../core/road_routing.dart';
 import '../data/driver_repository.dart';
 import '../domain/driver.dart';
 import 'cancel_trip_screen.dart';
@@ -22,7 +23,7 @@ class CrewScreen extends StatelessWidget {
   final DriverRepository repository;
   final Crew crew;
 
-  /// Fond de carte OpenStreetMap ; désactivé dans les tests (pas de réseau).
+  /// Fond de carte OpenStreetMap et tracé routier ; désactivés dans les tests (pas de réseau).
   final bool showMapTiles;
 
   List<LatLng> get _route => [
@@ -138,9 +139,7 @@ class CrewScreen extends StatelessWidget {
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.example.mboaride',
             ),
-          PolylineLayer(polylines: [
-            Polyline(points: route, strokeWidth: 5, color: MboaColors.green)
-          ]),
+          if (showMapTiles) _RoadLine(stops: route),
           MarkerLayer(
             markers: [
               for (var i = 0; i < route.length; i++)
@@ -316,5 +315,33 @@ class CrewScreen extends StatelessWidget {
             ],
           ),
         ],
+      );
+}
+
+/// Tracé de l'équipage sur les routes (départ, chaque prise en charge, arrivée), calculé
+/// par OSRM sur OpenStreetMap. Rien n'est dessiné tant qu'il n'est pas arrivé, ni s'il est
+/// indisponible : jamais de ligne droite à vol d'oiseau.
+class _RoadLine extends StatefulWidget {
+  const _RoadLine({required this.stops});
+
+  final List<LatLng> stops;
+
+  @override
+  State<_RoadLine> createState() => _RoadLineState();
+}
+
+class _RoadLineState extends State<_RoadLine> {
+  late final Future<RoadRoute?> _route = RoadRouting().route(widget.stops);
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<RoadRoute?>(
+        future: _route,
+        builder: (context, snapshot) {
+          final route = snapshot.data;
+          if (route == null) return const SizedBox.shrink();
+          return PolylineLayer(polylines: [
+            Polyline(points: route.points, strokeWidth: 5, color: MboaColors.green),
+          ]);
+        },
       );
 }
