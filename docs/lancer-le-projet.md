@@ -90,7 +90,7 @@ Start-Process http://localhost:8000/docs     # documentation de l'API
 
 ```powershell
 cd frontend\mboaride_flutter_project
-flutter devices                              # identifiants des appareils
+flutter devices          # doit lister emulator-5554 et le Pixel 7 Pro (2B241FDH3000YX)
 ```
 
 Client, sur l'émulateur :
@@ -99,10 +99,11 @@ Client, sur l'émulateur :
 flutter run -d emulator-5554 --dart-define=API_URL=http://127.0.0.1:8000 --dart-define=AUTH_URL=http://127.0.0.1:8101
 ```
 
-Chauffeur, sur le téléphone (dans un deuxième PowerShell, même dossier) :
+Chauffeur, sur le téléphone, le Pixel 7 Pro `2B241FDH3000YX` (dans un deuxième PowerShell,
+même dossier) :
 
 ```powershell
-flutter run -d <id du téléphone> --dart-define=API_URL=http://127.0.0.1:8000 --dart-define=AUTH_URL=http://127.0.0.1:8101 --dart-define=START=driver
+flutter run -d 2B241FDH3000YX --dart-define=API_URL=http://127.0.0.1:8000 --dart-define=AUTH_URL=http://127.0.0.1:8101 --dart-define=START=driver
 ```
 
 `START=driver` ouvre directement l'espace conducteur après la connexion. Sans lui, le
