@@ -48,7 +48,10 @@ void main() {
       // Logpom → Bonabéri : 15 km × 8 L/100 km × 840 FCFA = 1 008 FCFA de carburant.
       final urban = PriceEstimate.compute(distanceKm: 15, consumptionL100: 8, seats: 3);
       expect(urban.fuelFcfa, 1008);
-      expect(urban.perPassengerByOccupancy, [504, 336, 252]); // partagé entre le conducteur et les passagers à bord
+      // Parts du conducteur 504, 336 et 252 FCFA (partagées entre le conducteur et les passagers à
+      // bord) ; le prix payé comprend 10 % de commission MboaRide, arrondi aux 25 FCFA supérieurs.
+      expect(urban.perPassengerByOccupancy, [575, 375, 300]);
+      expect(passengerPrice(40), 100); // jamais moins de 100 FCFA
 
       // Douala-Yaoundé : 240 km, 1 000 FCFA de péage, commission de 10 %.
       final intercity = PriceEstimate.compute(
@@ -59,7 +62,7 @@ void main() {
         withCommission: true,
       );
       expect(intercity.fuelFcfa, 16128);
-      expect(intercity.fullPrice, 3769); // (16 128 + 1 000) / 5 = 3 426, plus 343 de commission
+      expect(intercity.fullPrice, 3825); // (16 128 + 1 000) / 5 = 3 426, ÷ 0,9 = 3 807, arrondi à 3 825
     });
 
     test('un retard fait sortir de sa fenêtre le passager le plus serré', () async {
@@ -88,8 +91,10 @@ void main() {
         departure: '06:45',
         seats: 3,
         maxDetourKm: 2,
+        meetingPoint: 'Station Total de Logpom',
       );
       expect(plan.error, isNull);
+      expect(plan.copyWith(meetingPoint: '').error, contains('point de ramassage'));
       expect(plan.copyWith(departure: '6h45').error, contains('HH:MM'));
       expect(plan.copyWith(weekdays: {}).error, contains('jour'));
       expect(plan.copyWith(kind: TripKind.interurban, weekdays: {}).error, isNull);
@@ -139,7 +144,7 @@ void main() {
 
       await tester.tap(find.text('Gains'));
       await tester.pumpAndSettle();
-      expect(find.text('75 %'), findsOneWidget);
+      expect(find.text('74 %'), findsOneWidget);
     });
 
     testWidgets('une pièce déposée passe en vérification', (tester) async {
@@ -160,22 +165,28 @@ void main() {
       final repository = _repo();
       await tester.pumpWidget(_app(PublishTripScreen(repository: repository)));
       await tester.pumpAndSettle();
-      expect(find.text('Environ 252 FCFA par passager, voiture pleine'), findsOneWidget);
-      expect(find.textContaining('504 FCFA pour un passager seul'), findsOneWidget);
+      expect(find.text('Environ 300 FCFA par passager, voiture pleine'), findsOneWidget);
+      expect(find.textContaining('575 FCFA pour un passager seul'), findsOneWidget);
 
+      // Sans point de ramassage, la publication est refusée.
+      await _tapVisible(tester, find.text('Publier le trajet'));
+      expect(find.textContaining('Précisez le point de ramassage'), findsOneWidget);
+      await tester.enterText(find.byKey(const ValueKey('point-ramassage')), 'Station Total de Logpom');
       await _tapVisible(tester, find.text('Publier le trajet'));
       expect(find.textContaining('Trajet publié'), findsOneWidget);
       expect(repository.published.single.weekdays, {1, 2, 3, 4, 5});
+      expect(repository.published.single.meetingPoint, 'Station Total de Logpom');
 
       await _tapVisible(tester, find.text('Interurbain'));
       expect(find.text('Points de départ possibles'), findsOneWidget);
-      expect(find.text('Environ 3${_thin}769 FCFA par passager, voiture pleine'), findsOneWidget);
+      expect(find.text('Environ 3${_thin}825 FCFA par passager, voiture pleine'), findsOneWidget);
     });
 
     testWidgets('un conducteur non agréé ne peut pas publier', (tester) async {
       _tallScreen(tester);
       await tester.pumpWidget(_app(PublishTripScreen(repository: _repo(approved: false))));
       await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('point-ramassage')), 'Station Total de Logpom');
       await _tapVisible(tester, find.text('Publier le trajet'));
       expect(find.textContaining('agrément doit être validé'), findsOneWidget);
     });
@@ -185,8 +196,13 @@ void main() {
       await tester.pumpWidget(_app(CrewScreen(repository: _repo(), crew: _crew(), showMapTiles: false)));
       // La carte redessine en continu : on avance le temps au lieu d'attendre la fin des animations.
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('Grâce · Kotto'), findsOneWidget);
-      expect(find.text('Nadège · Deido'), findsOneWidget);
+      // Le conducteur voit le nom complet et le téléphone de chaque passager, et peut l'appeler.
+      expect(find.text('Grâce Ebolo · Kotto'), findsOneWidget);
+      expect(find.text('Nadège Kamga · Deido'), findsOneWidget);
+      expect(find.text('+237690000201'), findsOneWidget);
+      expect(find.byTooltip('Appeler Grâce'), findsOneWidget);
+      expect(find.textContaining('Station Total de Logpom, côté boulangerie'), findsOneWidget);
+      expect(find.text('Démarrer la course'), findsOneWidget);
       expect(find.text('Équipage confirmé'), findsOneWidget);
       expect(find.text('Annuler le trajet'), findsOneWidget);
     });
@@ -223,7 +239,7 @@ void main() {
       _tallScreen(tester);
       await tester.pumpWidget(_app(EarningsScreen(repository: _repo())));
       await tester.pumpAndSettle();
-      expect(find.text('75 %'), findsOneWidget);
+      expect(find.text('74 %'), findsOneWidget);
       expect(find.textContaining('objectif 50 %'), findsOneWidget);
       expect(find.textContaining('en attente'), findsOneWidget);
     });

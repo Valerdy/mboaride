@@ -154,6 +154,13 @@ class MyTrip {
     this.reference,
     this.operatorLabel,
     this.failureReason,
+    this.driverPhone,
+    this.pickupPoint,
+    this.pickupInstructions,
+    this.courseStatus = CourseStatus.notStarted,
+    this.endValidated = false,
+    this.myRating,
+    this.driverPaid = false,
   });
 
   final int bookingId;
@@ -171,6 +178,19 @@ class MyTrip {
   final String? operatorLabel;
   final String? failureReason;
 
+  /// Numéro du conducteur, donné une fois la place payée.
+  final String? driverPhone;
+  final String? pickupPoint;
+  final String? pickupInstructions;
+  final CourseStatus courseStatus;
+
+  /// Le passager a validé la fin de la course (et noté le conducteur).
+  final bool endValidated;
+  final int? myRating;
+
+  /// Le conducteur a reçu l'argent : tout l'équipage a validé.
+  final bool driverPaid;
+
   factory MyTrip.fromJson(Map<String, dynamic> json) => MyTrip(
     bookingId: (json['id_reservation'] as num).toInt(),
     state: TripState.fromCode(json['etat'] as String?),
@@ -186,8 +206,238 @@ class MyTrip {
     reference: json['reference'] as String?,
     operatorLabel: json['operateur'] as String?,
     failureReason: json['motif_echec'] as String?,
+    driverPhone: json['conducteur_telephone'] as String?,
+    pickupPoint: json['point_ramassage'] as String?,
+    pickupInstructions: json['consignes_ramassage'] as String?,
+    courseStatus: CourseStatus.fromCode(json['statut_course'] as String?),
+    endValidated: json['fin_validee'] == true,
+    myRating: (json['ma_note'] as num?)?.toInt(),
+    driverPaid: json['conducteur_paye'] == true,
   );
 }
+
+/// État de la course côté conducteur : démarrée, arrivée, puis réglée (conducteur payé).
+enum CourseStatus {
+  notStarted('a_demarrer', 'Pas encore démarrée'),
+  running('en_cours', 'En route'),
+  arrived('arrivee', 'Arrivée à destination'),
+  settled('reglee', 'Terminée et réglée');
+
+  const CourseStatus(this.code, this.label);
+  final String code;
+  final String label;
+
+  static CourseStatus fromCode(String? code) =>
+      values.firstWhere((c) => c.code == code, orElse: () => CourseStatus.notStarted);
+}
+
+/// Un lieu avec ses coordonnées.
+class GeoPlace {
+  const GeoPlace({required this.label, required this.lat, required this.lng});
+
+  final String label;
+  final double lat;
+  final double lng;
+
+  factory GeoPlace.fromJson(Map<String, dynamic> json) => GeoPlace(
+    label: json['libelle'] as String? ?? '',
+    lat: (json['lat'] as num).toDouble(),
+    lng: (json['lon'] as num).toDouble(),
+  );
+}
+
+/// Suivi d'une course par le passager (`GET /api/moi/reservations/{id}/suivi`).
+class RideTracking {
+  const RideTracking({
+    required this.bookingId,
+    required this.date,
+    required this.paid,
+    required this.courseStatus,
+    required this.endValidated,
+    required this.canValidate,
+    required this.driver,
+    required this.vehicle,
+    required this.pickupTime,
+    required this.arrivalTime,
+    required this.priceFcfa,
+    required this.pickupPoint,
+    required this.from,
+    required this.to,
+    this.driverLastName,
+    this.driverPhone,
+    this.pickupInstructions,
+    this.waitMinutes = 5,
+  });
+
+  final int bookingId;
+  final DateTime date;
+  final bool paid;
+  final CourseStatus courseStatus;
+  final bool endValidated;
+  final bool canValidate;
+  final String driver;
+  final String? driverLastName;
+  final String? driverPhone;
+  final String vehicle;
+  final String pickupTime;
+  final String arrivalTime;
+  final int priceFcfa;
+  final String pickupPoint;
+  final String? pickupInstructions;
+  final int waitMinutes;
+
+  /// Départ et destination du passager.
+  final GeoPlace from;
+  final GeoPlace to;
+
+  factory RideTracking.fromJson(Map<String, dynamic> json) => RideTracking(
+    bookingId: (json['id_reservation'] as num).toInt(),
+    date: DateTime.parse(json['date_trajet'] as String),
+    paid: json['paye'] == true,
+    courseStatus: CourseStatus.fromCode(json['statut_course'] as String?),
+    endValidated: json['fin_validee'] == true,
+    canValidate: json['peut_valider'] == true,
+    driver: json['conducteur'] as String? ?? '',
+    driverLastName: json['conducteur_nom'] as String?,
+    driverPhone: json['conducteur_telephone'] as String?,
+    vehicle: json['vehicule'] as String? ?? '',
+    pickupTime: json['prise_en_charge'] as String? ?? '',
+    arrivalTime: json['arrivee'] as String? ?? '',
+    priceFcfa: (json['prix_fcfa'] as num?)?.toInt() ?? 0,
+    pickupPoint: json['point_ramassage'] as String? ?? '',
+    pickupInstructions: json['consignes_ramassage'] as String?,
+    waitMinutes: (json['attente_max_min'] as num?)?.toInt() ?? 5,
+    from: GeoPlace.fromJson(json['depart'] as Map<String, dynamic>),
+    to: GeoPlace.fromJson(json['destination'] as Map<String, dynamic>),
+  );
+}
+
+/// Réponse à la validation de fin de course.
+class EndOfRideResult {
+  const EndOfRideResult({
+    required this.message,
+    required this.driver,
+    required this.rating,
+    required this.driverPaid,
+    this.waitingFor = const [],
+  });
+
+  final String message;
+  final String driver;
+  final int rating;
+
+  /// Tout l'équipage a validé : le conducteur a reçu son argent.
+  final bool driverPaid;
+
+  /// Passagers qui n'ont pas encore validé.
+  final List<String> waitingFor;
+
+  factory EndOfRideResult.fromJson(Map<String, dynamic> json) => EndOfRideResult(
+    message: json['message'] as String? ?? "Merci d'avoir voyagé avec MboaRide !",
+    driver: json['conducteur'] as String? ?? '',
+    rating: (json['note'] as num?)?.toInt() ?? 0,
+    driverPaid: json['conducteur_paye'] == true,
+    waitingFor: [for (final p in (json['en_attente_de'] as List<dynamic>? ?? const [])) p as String],
+  );
+}
+
+// --- Portefeuille ---------------------------------------------------------------------------
+
+enum WalletMovementType {
+  topUp('recharge'),
+  payment('paiement'),
+  refund('remboursement'),
+  earning('gain'),
+  withdrawal('retrait');
+
+  const WalletMovementType(this.code);
+  final String code;
+
+  static WalletMovementType fromCode(String? code) =>
+      values.firstWhere((t) => t.code == code, orElse: () => WalletMovementType.payment);
+}
+
+class WalletMovement {
+  const WalletMovement({
+    required this.type,
+    required this.typeLabel,
+    required this.amountFcfa,
+    required this.balanceAfterFcfa,
+    required this.label,
+    this.reference,
+    this.createdAt,
+  });
+
+  final WalletMovementType type;
+  final String typeLabel;
+
+  /// Positif pour un crédit, négatif pour un débit.
+  final int amountFcfa;
+  final int balanceAfterFcfa;
+  final String label;
+  final String? reference;
+  final DateTime? createdAt;
+
+  factory WalletMovement.fromJson(Map<String, dynamic> json) => WalletMovement(
+    type: WalletMovementType.fromCode(json['type'] as String?),
+    typeLabel: json['type_libelle'] as String? ?? '',
+    amountFcfa: (json['montant_fcfa'] as num).toInt(),
+    balanceAfterFcfa: (json['solde_apres_fcfa'] as num).toInt(),
+    label: json['libelle'] as String? ?? '',
+    reference: json['reference'] as String?,
+    createdAt: DateTime.tryParse(json['cree_le'] as String? ?? '')?.toLocal(),
+  );
+}
+
+/// Portefeuille MboaRide : solde, gains en attente (conducteur), paiements gardés par
+/// MboaRide jusqu'à la fin de la course (passager), relevé.
+class Wallet {
+  const Wallet({
+    required this.balanceFcfa,
+    required this.autoTransfer,
+    required this.movements,
+    this.defaultAccount,
+    this.pendingEarningsFcfa = 0,
+    this.pendingPassengers = 0,
+    this.escrowFcfa = 0,
+    this.commissionFcfa = 0,
+  });
+
+  final int balanceFcfa;
+  final bool autoTransfer;
+  final MobileMoneyAccount? defaultAccount;
+  final int pendingEarningsFcfa;
+  final int pendingPassengers;
+  final int escrowFcfa;
+  final int commissionFcfa;
+  final List<WalletMovement> movements;
+
+  factory Wallet.fromJson(Map<String, dynamic> json) {
+    final account = json['compte_par_defaut'] as Map<String, dynamic>?;
+    return Wallet(
+      balanceFcfa: (json['solde_fcfa'] as num).toInt(),
+      autoTransfer: json['virement_auto'] == true,
+      defaultAccount: account == null
+          ? null
+          : MobileMoneyAccount(
+              id: (account['id_compte'] as num).toInt(),
+              operator: MobileMoneyOperator.fromCode(account['operateur'] as String?),
+              phone: account['telephone'] as String? ?? '',
+              holder: account['titulaire'] as String? ?? '',
+              isDefault: true,
+            ),
+      pendingEarningsFcfa: (json['gains_en_attente_fcfa'] as num?)?.toInt() ?? 0,
+      pendingPassengers: (json['passagers_en_attente'] as num?)?.toInt() ?? 0,
+      escrowFcfa: (json['paiements_en_sequestre_fcfa'] as num?)?.toInt() ?? 0,
+      commissionFcfa: (json['commission_mboaride_fcfa'] as num?)?.toInt() ?? 0,
+      movements: [
+        for (final m in (json['mouvements'] as List<dynamic>? ?? const []))
+          WalletMovement.fromJson(m as Map<String, dynamic>),
+      ],
+    );
+  }
+}
+
 
 const List<String> _frenchDays = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
 const List<String> _frenchMonths = [

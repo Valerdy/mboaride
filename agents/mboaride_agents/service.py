@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import os
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Literal
 
@@ -44,7 +45,9 @@ def pricing_from_env() -> PricingPolicy:
     AGENTS_PRICING_COST_BASIS (SHARED_LEG, SHARED_LEG_PLUS_DETOUR, WHOLE_TRIP) et
     AGENTS_PRICING_DIVISOR (OFFERED_SEATS, OCCUPANTS) permettent de comparer une autre règle.
     """
-    return PricingPolicy(
+    # Les autres réglages du produit (commission sur tous les trajets, arrondi, minimum) sont gardés.
+    return replace(
+        PRODUCT_POLICY,
         cost_basis=os.environ.get("AGENTS_PRICING_COST_BASIS") or PRODUCT_POLICY.cost_basis,
         divisor_rule=os.environ.get("AGENTS_PRICING_DIVISOR") or PRODUCT_POLICY.divisor_rule,
     )

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/mboa_theme.dart';
+import '../../../services/session.dart';
+import '../../notifications/notifications.dart';
+import '../../payment/data/payment_repository.dart';
+import '../../wallet/wallet_screen.dart';
 import '../data/driver_repository.dart';
 import '../domain/driver.dart';
 import 'approval_screen.dart';
@@ -17,10 +21,14 @@ class DriverHomeScreen extends StatefulWidget {
     required this.repository,
     required this.onOpenTab,
     this.showMapTiles = true,
+    this.walletRepository,
+    this.notifications,
   });
 
   final DriverRepository repository;
   final bool showMapTiles;
+  final PaymentRepository? walletRepository;
+  final NotificationsRepository? notifications;
 
   /// Ouvre un onglet de l'espace conducteur (1 : Trajets).
   final ValueChanged<int> onOpenTab;
@@ -44,15 +52,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Espace conducteur'),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: CircleAvatar(
-              radius: 19,
-              backgroundColor: MboaColors.sun,
-              child: Icon(Icons.person, color: MboaColors.night),
+        actions: [
+          if (widget.notifications != null) NotificationBell(repository: widget.notifications!),
+          if (widget.walletRepository != null)
+            IconButton(
+              tooltip: 'Mon portefeuille',
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              onPressed: () => _push(WalletScreen(repository: widget.walletRepository!, driver: true)),
             ),
-          ),
+          const SignOutButton(),
         ],
       ),
       body: AsyncView<DriverOverview>(
@@ -193,7 +201,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           const SizedBox(height: 14),
           FilledButton(
             onPressed: () => _push(
-              CrewScreen(repository: widget.repository, crew: crew, showMapTiles: widget.showMapTiles),
+              CrewScreen(
+                repository: widget.repository,
+                crew: crew,
+                showMapTiles: widget.showMapTiles,
+                walletRepository: widget.walletRepository,
+              ),
             ),
             child: const Text('Voir l\'équipage'),
           ),

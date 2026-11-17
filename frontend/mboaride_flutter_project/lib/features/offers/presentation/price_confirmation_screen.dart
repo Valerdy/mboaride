@@ -147,6 +147,16 @@ class _PriceConfirmationScreenState extends State<PriceConfirmationScreen> {
                 icon: Icons.event,
                 text: 'Date : ${_frenchDate(widget.date)}',
               ),
+              if (offer.vehicle != null)
+                _Row(icon: Icons.directions_car_outlined, text: offer.vehicle!),
+              _Row(
+                icon: Icons.place_outlined,
+                text: offer.pickupPoint == null
+                    ? 'Point de ramassage : le conducteur le précisera avant le départ'
+                    : 'Point de ramassage : ${offer.pickupPoint}',
+              ),
+              if (offer.pickupInstructions != null)
+                _Row(icon: Icons.info_outline, text: offer.pickupInstructions!),
             ],
           ),
           const SizedBox(height: 14),

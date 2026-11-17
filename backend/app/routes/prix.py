@@ -80,7 +80,7 @@ def _demande(conn, id_demande: int, u: dict) -> dict:
 
 def _trajet(conn, id_trajet: int) -> dict:
     t = conn.execute(
-        """SELECT t.*, v.conso_l_100km, v.climatise, v.non_fumeur,
+        """SELECT t.*, v.conso_l_100km, v.climatise, v.non_fumeur, v.marque_modele, v.immatriculation,
                   u.prenom AS conducteur_prenom, u.prix_min_fcfa, u.accepte_collegues, u.accepte_eleves
              FROM trajet t JOIN vehicule v USING (id_vehicule)
              JOIN utilisateur u ON u.id_utilisateur = t.id_conducteur
@@ -139,15 +139,18 @@ def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
     if not req.confort_obligatoire <= drv.confort:
         raise Refus("confort", "Le véhicule ne respecte pas votre confort obligatoire (climatisation)")
     jour = jour or d["date_unique"]
+    deja_a_bord = 0
     if jour is not None:
         if not roule_le(t, jour):
             raise Refus("jour", f"Le conducteur ne roule pas le {jour:%d/%m/%Y}", 409)
         if conn.execute("SELECT 1 FROM indisponibilite_trajet WHERE id_trajet = %s AND date_trajet = %s",
                         (t["id_trajet"], jour)).fetchone():
             raise Refus("indisponible", "Le conducteur a annulé ce trajet pour cette date", 409)
-        if places_restantes(conn, t, jour) <= 0:
+        restantes = places_restantes(conn, t, jour)
+        if restantes <= 0:
             raise Refus("complet", "La voiture est déjà complète pour cette date", 409)
-    det = moteur.detail_prix(drv, req, niveau)
+        deja_a_bord = t["places_offertes"] - restantes
+    det = moteur.detail_prix(drv, req, niveau, places_reservees=deja_a_bord)
     h = moteur.horaires(drv, req)
     return {
         "id_demande": d["id_demande"], "id_trajet": t["id_trajet"],
@@ -165,8 +168,13 @@ def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
         "detour_km": h[2] if h else None,
         "horaires_compatibles": h is not None,
         "confirmable": det.prix_fcfa <= d["prix_max_fcfa"] and h is not None,
-        "formule": "distance × consommation / 100 × prix du litre (+ péage) ÷ occupants"
-                   " (+ 10 % public/interurbain), arrondi au FCFA",
+        "formule": "(trajet commun + détour) × consommation / 100 × prix du litre (+ péage) ÷ occupants à bord, "
+                   "÷ 0,9 pour la commission MboaRide de 10 %, arrondi aux 25 FCFA supérieurs (100 FCFA au moins)",
+        "passagers_deja_a_bord": deja_a_bord,
+        "part_conducteur_fcfa": det.prix_fcfa - det.commission_fcfa,
+        "vehicule": f"{t['marque_modele']} · {t['immatriculation']}" if t.get("marque_modele") else None,
+        "point_ramassage": t.get("point_ramassage"),
+        "consignes_ramassage": t.get("consignes_ramassage"),
         "niveau": niveau,
     }
 

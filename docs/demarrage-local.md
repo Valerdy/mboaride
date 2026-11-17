@@ -32,7 +32,10 @@ cercle de confiance.
 - PostgreSQL installé (service Windows) et le mot de passe de l'utilisateur `postgres` ;
 - Python 3.11 ou plus, Node.js 20 ou plus, Flutter, les outils Android (`adb`) ;
 - le téléphone en mode développeur, débogage USB autorisé ; un émulateur créé
-  (Android Studio, Device Manager).
+  (Android Studio, Device Manager) ;
+- le **mode développeur de Windows** activé (Paramètres > Système > Espace développeurs) :
+  sans lui, Flutter ne peut pas créer les liens symboliques des extensions, et la carte,
+  la position GPS ou l'appel d'un passager ne fonctionnent pas dans l'application.
 
 ## 1. Démarrer les serveurs
 
@@ -82,32 +85,66 @@ Console web : http://localhost:8000 (documentation de l'API : http://localhost:8
 3. « Mon véhicule » : modèle, immatriculation, places, consommation, confort.
 4. Onglet « Trajets » : publier par exemple Logpom → Bonanjo, départ 06:50, du lundi au
    vendredi, 3 places, détour 3 km. Les lieux sont des quartiers connus
-   (`GET /api/lieux`).
+   (`GET /api/lieux`). Le **point de ramassage** est obligatoire : lieu exact et repère
+   (« Station Total de Logpom, côté boulangerie »), consignes facultatives (« berline grise,
+   je klaxonne deux fois ») et attente maximale. Il se modifie ensuite depuis l'équipage.
 
 **Client (émulateur)**
 
 5. Créer un compte avec un e-mail du même domaine (`@entreprise-a.cm`) : le client et le
    chauffeur sont collègues, donc dans le même cercle de confiance.
 6. « Où allez-vous ? » : départ Kotto, arrivée Bonanjo, fenêtre d'arrivée 07:20 à 07:55,
-   un jour où le chauffeur roule (demain si c'est un jour de semaine), prix maximal 800 FCFA.
-7. L'offre du chauffeur apparaît, avec le prix détaillé calculé par le moteur d'agents :
-   la choisir puis « Confirmer ». La place est retenue et l'écran de paiement s'ouvre.
-8. Paiement Mobile Money (fictif) : enregistrer son compte une fois (opérateur MTN ou
-   Orange, numéro de cet opérateur, nom du titulaire), puis « Payer ». Saisir un code
-   secret de 4 chiffres quelconque et « Valider » : aucun montant n'est débité et le code
-   n'est ni envoyé ni enregistré. Le trajet passe dans « Mes trajets », rubrique
-   « Confirmés » ; non payé, il reste « À confirmer » (bouton « Payer » ou « Renoncer »).
+   un jour où le chauffeur roule : « Aujourd'hui », « Demain » ou « Autre date » (calendrier,
+   jusqu'à deux mois), prix maximal 800 FCFA.
+7. L'offre du chauffeur apparaît, avec le prix détaillé, le véhicule et le point de
+   ramassage : la choisir puis « Confirmer ». La place est retenue et l'écran de paiement
+   s'ouvre.
+8. Paiement (fictif), deux façons :
+   - **portefeuille MboaRide** : « Recharger mon portefeuille » depuis un compte Mobile
+     Money (code secret de 4 chiffres quelconque), puis « Payer avec mon portefeuille » ;
+   - **Mobile Money** : enregistrer son compte une fois (MTN ou Orange, numéro de cet
+     opérateur, titulaire), « Payer », code secret quelconque, « Valider ».
+
+   Aucun montant n'est débité et le code n'est ni envoyé ni enregistré. Le trajet passe
+   dans « Mes trajets », rubrique « Confirmés », avec le point de ramassage et le numéro du
+   conducteur ; non payé, il reste « À confirmer » (« Payer » ou « Renoncer »).
 
 **Retour au chauffeur**
 
-9. Rouvrir l'espace conducteur : l'équipage montre le client qui a payé, son point et son
-   heure de prise en charge (un trajet non payé n'y apparaît pas). « Signaler un retard » prévient le client ; « Annuler le trajet »
-   le réaffecte à un autre conducteur s'il en existe un.
+9. Rouvrir l'espace conducteur : l'équipage montre le client qui a payé (nom, téléphone à
+   appeler, note, lieu et heure de prise en charge ; un trajet non payé n'y apparaît pas).
+   « Signaler un retard » et « Annuler le trajet » préviennent le client : la cloche de son
+   application affiche la notification (elle interroge l'API toutes les 20 s).
+
+**La course, sans se déplacer**
+
+10. Chauffeur : « Démarrer la course ». Client : « Mes trajets » > « Suivre la course ».
+    Sur chaque écran de course, choisir le mode :
+    - « Simulation » puis « Lancer la simulation » : la position suit la route, accélérée
+      vingt fois (une course en ville dure environ une minute) ;
+    - « GPS » : la vraie position. Sur l'émulateur, la faire rouler le long de la route avec
+      `powershell -File scripts\simuler_gps_emulateur.ps1 -De Kotto -A Bonanjo`
+      (ou Extended controls > Location > Routes dans l'émulateur).
+11. À moins de 80 m de la destination, l'écran de fin de course s'ouvre chez le client :
+    « Merci d'avoir utilisé MboaRide », note de 1 à 5, commentaire, « Valider la fin de la
+    course ». Le chauffeur, arrivé, suit les validations de son équipage.
+12. Quand tous les passagers ont validé, le chauffeur reçoit dans son portefeuille le prix
+    payé moins la commission MboaRide de 10 % (icône portefeuille de l'espace conducteur).
+    Avec « Virement automatique vers Mobile Money », la somme part aussitôt vers son compte.
+    En local (`MBOARIDE_SIMULATION=1`), la course peut démarrer avant son jour ; en
+    production, seulement le jour du trajet, et une fin non validée l'est d'office 24 h
+    après l'arrivée.
+
+**Session**
+
+13. L'application garde la session d'un lancement à l'autre. « Se déconnecter » (icône en
+    haut de l'espace conducteur, menu ☰ ou profil côté client) ramène tout de suite à la
+    connexion ; une session expirée est renouvelée, sinon l'application y ramène aussi.
 
 **Console web (navigateur)**
 
-10. Choisir le client dans « Connecté en tant que » : sa réservation et son paiement
-    apparaissent ; le paiement est « reçu » dans les gains du chauffeur.
+14. Choisir le client dans « Connecté en tant que » : sa réservation et son paiement
+    apparaissent.
 
 ## En cas de problème
 
@@ -118,3 +155,5 @@ Console web : http://localhost:8000 (documentation de l'API : http://localhost:8
 | 403 « terminez votre inscription » | le profil métier n'a pas été créé : se reconnecter |
 | aucune offre pour la demande | autre cercle (e-mails de domaines différents), jour où le chauffeur ne roule pas, fenêtre ou prix trop justes : l'écran « aucune offre » dit lequel |
 | « Session expirée » | jeton de 12 h en local (`ACCESS_TOKEN_MINUTES`) : se reconnecter |
+| « Building with plugins requires symlink support » | mode développeur de Windows désactivé (voir Prérequis) |
+| l'écran de suivi reste « En attente de votre position » | localisation coupée ou refusée : l'autoriser, ou passer en « Simulation » |

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../core/api_client.dart';
 import '../core/app_config.dart';
 import '../core/auth_session.dart';
+import '../core/session_store.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
@@ -114,7 +115,31 @@ class AuthService {
     AuthSession.accessToken = token;
     AuthSession.refreshToken = data['refresh_token'] as String?;
     AuthSession.profile = await ensureProfile();
+    await SessionStore.save();
     return token;
+  }
+
+  /// Renouvelle la session avec le jeton de rafraîchissement (usage unique côté Node).
+  Future<bool> refreshSession() async {
+    final refresh = AuthSession.refreshToken;
+    if (refresh == null) return false;
+    try {
+      final (status, data) = await _post('/refresh', {'refresh_token': refresh});
+      if (status != 200 || data['token'] == null) return false;
+      await _openSession(data);
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Révoque le jeton de rafraîchissement chez l'API Node ; silencieux hors connexion.
+  Future<void> revoke(String refreshToken) async {
+    try {
+      await _post('/logout', {'refresh_token': refreshToken});
+    } on Object {
+      // hors ligne : la session locale est fermée de toute façon
+    }
   }
 
   /// Profil métier (API Python), créé au premier appel.
@@ -138,16 +163,12 @@ class AuthService {
     }
   }
 
-  /// 6. Déconnexion : le jeton de rafraîchissement est révoqué côté Node.
+  /// 6. Déconnexion : la session locale est fermée tout de suite, le jeton de
+  /// rafraîchissement est révoqué côté Node en arrière-plan.
   Future<void> signOut() async {
     final refresh = AuthSession.refreshToken;
     AuthSession.clear();
-    if (refresh != null) {
-      try {
-        await _post('/logout', {'refresh_token': refresh});
-      } catch (_) {
-        // hors ligne : la session locale est fermée de toute façon
-      }
-    }
+    unawaited(SessionStore.clear());
+    if (refresh != null) unawaited(revoke(refresh));
   }
 }

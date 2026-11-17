@@ -3,6 +3,7 @@ import 'core/app_config.dart';
 import 'features/children/data/children_repository.dart';
 import 'features/driver/data/driver_repository.dart';
 import 'features/intercity/data/intercity_repository.dart';
+import 'features/notifications/notifications.dart';
 import 'features/offers/data/offers_repository.dart';
 import 'features/payment/data/payment_repository.dart';
 import 'features/preferences/data/preferences_repository.dart';
@@ -31,4 +32,6 @@ class AppServices {
       _fake ? FakePaymentRepository() : ApiPaymentRepository(client: client);
   static final DriverRepository driver =
       _fake ? FakeDriverRepository() : ApiDriverRepository(client: client);
+  static final NotificationsRepository notifications =
+      _fake ? FakeNotificationsRepository() : ApiNotificationsRepository(client: client);
 }

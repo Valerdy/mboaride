@@ -1,5 +1,6 @@
 """Service agents : le moteur exposé en HTTP, tel que l'API de l'application l'appelle."""
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -224,7 +225,7 @@ def test_pricing_rule_can_be_set_by_environment(monkeypatch):
     assert pricing_from_env() == PRODUCT_POLICY
     monkeypatch.setenv("AGENTS_PRICING_COST_BASIS", SHARED_LEG)
     monkeypatch.setenv("AGENTS_PRICING_DIVISOR", OFFERED_SEATS)
-    assert pricing_from_env() == PricingPolicy(cost_basis=SHARED_LEG, divisor_rule=OFFERED_SEATS)
+    assert pricing_from_env() == replace(PRODUCT_POLICY, cost_basis=SHARED_LEG, divisor_rule=OFFERED_SEATS)
     monkeypatch.setenv("AGENTS_PRICING_DIVISOR", "AU_HASARD")
     with pytest.raises(ValueError):
         pricing_from_env()

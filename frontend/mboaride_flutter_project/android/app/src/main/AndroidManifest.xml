@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Application connectée : API MboaRide, fonds de carte et recherche de lieux. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Suivi de la course sur la carte (conducteur et passager). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application
         android:label="mboaride"
         android:name="${applicationName}"
@@ -42,6 +45,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Appeler un passager ou le conducteur depuis l'équipage (url_launcher). -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
         </intent>
     </queries>
 </manifest>

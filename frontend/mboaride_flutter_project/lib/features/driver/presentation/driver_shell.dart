@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/mboa_theme.dart';
+import '../../notifications/notifications.dart';
+import '../../payment/data/payment_repository.dart';
 import '../data/driver_repository.dart';
 import 'agent_activity_screen.dart';
 import 'driver_home_screen.dart';
@@ -9,10 +11,22 @@ import 'publish_trip_screen.dart';
 
 /// Espace conducteur : quatre onglets en bas (Accueil, Trajets, Activité, Gains).
 class DriverShell extends StatefulWidget {
-  const DriverShell({super.key, required this.repository, this.initialTab = 0, this.showMapTiles = true});
+  const DriverShell({
+    super.key,
+    required this.repository,
+    this.initialTab = 0,
+    this.showMapTiles = true,
+    this.walletRepository,
+    this.notifications,
+  });
 
   final DriverRepository repository;
   final int initialTab;
+
+  /// Portefeuille (gains versés à la fin de chaque course) et notifications ; absents
+  /// dans les tests qui n'en ont pas besoin.
+  final PaymentRepository? walletRepository;
+  final NotificationsRepository? notifications;
 
   /// Fond de carte OpenStreetMap de l'écran équipage ; désactivé dans les tests.
   final bool showMapTiles;
@@ -30,10 +44,16 @@ class _DriverShellState extends State<DriverShell> {
   Widget build(BuildContext context) {
     final repository = widget.repository;
     final body = switch (_tab) {
-      0 => DriverHomeScreen(repository: repository, onOpenTab: _open, showMapTiles: widget.showMapTiles),
+      0 => DriverHomeScreen(
+        repository: repository,
+        onOpenTab: _open,
+        showMapTiles: widget.showMapTiles,
+        walletRepository: widget.walletRepository,
+        notifications: widget.notifications,
+      ),
       1 => PublishTripScreen(repository: repository),
       2 => AgentActivityScreen(repository: repository),
-      _ => EarningsScreen(repository: repository),
+      _ => EarningsScreen(repository: repository, walletRepository: widget.walletRepository),
     };
     return Scaffold(
       body: body,

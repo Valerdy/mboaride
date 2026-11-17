@@ -106,12 +106,24 @@ def annuler(id_trajet: int, body: Annulation, u: dict = Depends(utilisateur_cour
             "reservations_annulees": len(touchees), "passagers": resultats}
 
 
+@router.get("/moi/notifications/resume")
+def resume_notifications(u: dict = Depends(utilisateur_courant),
+                         conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Interrogé régulièrement par l'application : nombre de non lues et la plus récente."""
+    n = conn.execute("SELECT count(*) n FROM notification WHERE id_utilisateur = %s AND NOT lue",
+                     (u["id_utilisateur"],)).fetchone()["n"]
+    derniere = conn.execute(
+        "SELECT * FROM notification WHERE id_utilisateur = %s ORDER BY cree_le DESC, id_notification DESC LIMIT 1",
+        (u["id_utilisateur"],)).fetchone()
+    return {"non_lues": n, "derniere": derniere}
+
+
 @router.get("/moi/notifications")
-def mes_notifications(marquer: bool = True, u: dict = Depends(utilisateur_courant),
+def mes_notifications(marquer: bool = True, limite: int = 20, u: dict = Depends(utilisateur_courant),
                       conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     rows = conn.execute(
         "SELECT * FROM notification WHERE id_utilisateur = %s ORDER BY cree_le DESC, id_notification DESC "
-        "LIMIT 20", (u["id_utilisateur"],)).fetchall()
+        "LIMIT %s", (u["id_utilisateur"], max(1, min(limite, 100)))).fetchall()
     if marquer:
         conn.execute("UPDATE notification SET lue = TRUE WHERE id_utilisateur = %s AND NOT lue",
                      (u["id_utilisateur"],))

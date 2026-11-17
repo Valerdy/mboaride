@@ -23,10 +23,15 @@ def test_prix_identique_au_devis_des_agents():
                     consumption_l_per_100km=7.5, tolls=0, seats_total=3, seats_booked=0,
                     seats_requested=1, min_price=0, with_commission=False)
     detail = moteur.detail_prix(t, d, 0)
-    assert detail.prix_fcfa == attendu.price and detail.commission_fcfa == 0
+    assert detail.prix_fcfa == attendu.price and detail.commission_fcfa == attendu.commission
     assert detail.lignes()[-1]["montant_fcfa"] == attendu.price
+    # Tarif : commission de 10 % du prix sur tous les cercles, prix rond (25 FCFA), et le
+    # conducteur reçoit au moins sa part des frais.
+    assert detail.prix_fcfa % 25 == 0 and detail.commission_fcfa == detail.prix_fcfa // 10
+    frais = attendu.fuel_cost / attendu.divisor
+    assert detail.prix_fcfa - detail.commission_fcfa >= frais
     public = moteur.detail_prix(t, d, 2)
-    assert public.commission_fcfa > 0 and public.prix_fcfa == detail.prix_fcfa + public.commission_fcfa
+    assert public.prix_fcfa == detail.prix_fcfa and public.commission_fcfa == detail.commission_fcfa
     # La voiture se remplit : chacun paie moins.
     assert moteur.detail_prix(t, d, 0, places_reservees=2).prix_fcfa < detail.prix_fcfa
 

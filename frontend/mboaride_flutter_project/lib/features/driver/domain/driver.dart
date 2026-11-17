@@ -2,14 +2,30 @@
 ///
 /// Les calculs de prix reprennent la règle du produit du moteur d'agents
 /// (`agents/mboaride_agents/pricing.py`, `PRODUCT_POLICY`) : le coût du trajet commun
-/// est partagé entre les occupants à bord, conducteur compris.
+/// est partagé entre les occupants à bord, conducteur compris ; MboaRide prélève 10 %
+/// du prix sur chaque trajet, prix arrondi aux 25 FCFA supérieurs, 100 FCFA au moins.
 library;
+
+import '../../payment/domain/payment.dart' show CourseStatus;
+
+export '../../payment/domain/payment.dart' show CourseStatus;
 
 /// Prix officiel du super depuis février 2024 (FCFA par litre).
 const int fuelPricePerLitre = 840;
 
-/// Commission MboaRide en réseau public et en interurbain.
+/// Commission MboaRide, prélevée sur tous les trajets.
 const double commissionRate = 0.10;
+
+/// Pas d'arrondi du prix (pièces de 25 FCFA) et prix minimal d'un trajet.
+const int priceStepFcfa = 25;
+const int minFareFcfa = 100;
+
+/// Prix payé par le passager pour une part [share] du conducteur : commission de 10 %
+/// comprise, arrondi aux 25 FCFA supérieurs (même calcul que le moteur).
+int passengerPrice(int share) {
+  final raw = (share * 10 / 9 / priceStepFcfa).ceil() * priceStepFcfa;
+  return raw < minFareFcfa ? minFareFcfa : raw;
+}
 
 /// Arrondi au FCFA le plus proche, demi vers le haut (comme le moteur).
 int roundHalfUp(double value) => (value + 0.5).floor();
@@ -196,6 +212,9 @@ class TripPlan {
     required this.maxDetourKm,
     this.tollsFcfa = 0,
     this.pickupPoints = const [],
+    this.meetingPoint = '',
+    this.meetingInstructions = '',
+    this.waitMinutes = 5,
   });
 
   final TripKind kind;
@@ -214,6 +233,12 @@ class TripPlan {
   /// Interurbain : points de départ possibles dans la ville.
   final List<String> pickupPoints;
 
+  /// Point de ramassage précis (« Station Total de Logpom, côté boulangerie »), consignes
+  /// (« berline grise, je klaxonne deux fois ») et attente maximale.
+  final String meetingPoint;
+  final String meetingInstructions;
+  final int waitMinutes;
+
   TripPlan copyWith({
     TripKind? kind,
     String? from,
@@ -224,6 +249,9 @@ class TripPlan {
     double? maxDetourKm,
     int? tollsFcfa,
     List<String>? pickupPoints,
+    String? meetingPoint,
+    String? meetingInstructions,
+    int? waitMinutes,
   }) => TripPlan(
     kind: kind ?? this.kind,
     from: from ?? this.from,
@@ -234,6 +262,9 @@ class TripPlan {
     maxDetourKm: maxDetourKm ?? this.maxDetourKm,
     tollsFcfa: tollsFcfa ?? this.tollsFcfa,
     pickupPoints: pickupPoints ?? this.pickupPoints,
+    meetingPoint: meetingPoint ?? this.meetingPoint,
+    meetingInstructions: meetingInstructions ?? this.meetingInstructions,
+    waitMinutes: waitMinutes ?? this.waitMinutes,
   );
 
   static final RegExp _time = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
@@ -250,6 +281,10 @@ class TripPlan {
       return 'Entre ${Vehicle.minSeats} et ${Vehicle.maxSeats} places.';
     }
     if (tollsFcfa < 0) return 'Les péages ne peuvent pas être négatifs.';
+    if (meetingPoint.trim().length < 5) {
+      return 'Précisez le point de ramassage (lieu exact et repère), pour que vos passagers vous trouvent.';
+    }
+    if (waitMinutes < 0 || waitMinutes > 30) return 'Attente entre 0 et 30 minutes.';
     return null;
   }
 }
@@ -265,7 +300,7 @@ class PriceEstimate {
   });
 
   /// Le carburant du trajet commun (et les péages) est partagé entre le conducteur et
-  /// les passagers à bord ; une commission de 10 % s'ajoute en interurbain.
+  /// les passagers à bord ; le prix comprend la commission MboaRide de 10 %.
   factory PriceEstimate.compute({
     required double distanceKm,
     required double consumptionL100,
@@ -290,8 +325,7 @@ class PriceEstimate {
     );
   }
 
-  static int _withCommission(int share, bool apply) =>
-      apply ? share + roundHalfUp(share * commissionRate) : share;
+  static int _withCommission(int share, bool apply) => passengerPrice(share);
 
   final double distanceKm;
   final int fuelFcfa;
@@ -359,10 +393,31 @@ class CrewStop {
     required this.priceFcfa,
     this.lat,
     this.lng,
+    this.lastName,
+    this.phone,
+    this.destination,
+    this.rating,
+    this.ratingCount = 0,
+    this.student = false,
+    this.endValidated = false,
   });
 
+  /// Prénom du passager.
   final String passenger;
   final String place;
+
+  /// Fiche du passager pour le conducteur : nom, téléphone, destination, note moyenne.
+  final String? lastName;
+  final String? phone;
+  final String? destination;
+  final double? rating;
+  final int ratingCount;
+  final bool student;
+
+  /// Le passager a validé la fin de la course.
+  final bool endValidated;
+
+  String get fullName => lastName == null || lastName!.isEmpty ? passenger : '$passenger $lastName';
 
   /// Heures « HH:MM ».
   final String pickupTime;
@@ -390,9 +445,19 @@ class Crew {
     this.fromLng,
     this.toLat,
     this.toLng,
+    this.meetingPoint,
+    this.meetingInstructions,
+    this.waitMinutes = 5,
+    this.courseStatus = CourseStatus.notStarted,
   });
 
   final int tripId;
+
+  /// Point de ramassage annoncé aux passagers (null : pas encore précisé).
+  final String? meetingPoint;
+  final String? meetingInstructions;
+  final int waitMinutes;
+  final CourseStatus courseStatus;
 
   /// Date ISO du trajet (AAAA-MM-JJ) et libellé affiché (« Demain »).
   final String date;
@@ -411,6 +476,60 @@ class Crew {
   int get passengers => stops.length;
   int get totalFcfa => stops.fold(0, (sum, s) => sum + s.priceFcfa);
   bool get full => passengers >= seatsTotal;
+}
+
+/// Un passager pendant la course : a-t-il validé la fin, quelle note a-t-il donnée ?
+class CoursePassenger {
+  const CoursePassenger({required this.firstName, this.lastName, this.validated = false, this.rating});
+
+  final String firstName;
+  final String? lastName;
+  final bool validated;
+  final int? rating;
+}
+
+/// État de la course (démarrée, arrivée, réglée) et de son règlement au conducteur.
+class CourseState {
+  const CourseState({
+    required this.status,
+    required this.passengers,
+    required this.totalPaidFcfa,
+    required this.commissionFcfa,
+    required this.driverAmountFcfa,
+    required this.paidOut,
+  });
+
+  final CourseStatus status;
+  final List<CoursePassenger> passengers;
+  final int totalPaidFcfa;
+
+  /// Commission MboaRide (10 %) et part versée au conducteur.
+  final int commissionFcfa;
+  final int driverAmountFcfa;
+
+  /// Tout l'équipage a validé : l'argent est dans le portefeuille du conducteur.
+  final bool paidOut;
+
+  int get validations => passengers.where((p) => p.validated).length;
+
+  List<String> get waitingFor => [for (final p in passengers) if (!p.validated) p.firstName];
+
+  factory CourseState.fromJson(Map<String, dynamic> json) => CourseState(
+    status: CourseStatus.fromCode(json['statut'] as String?),
+    passengers: [
+      for (final p in (json['passagers'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>())
+        CoursePassenger(
+          firstName: p['prenom'] as String? ?? '',
+          lastName: p['nom'] as String?,
+          validated: p['fin_validee'] == true,
+          rating: (p['note'] as num?)?.toInt(),
+        ),
+    ],
+    totalPaidFcfa: (json['total_paye_fcfa'] as num?)?.toInt() ?? 0,
+    commissionFcfa: (json['commission_fcfa'] as num?)?.toInt() ?? 0,
+    driverAmountFcfa: (json['montant_conducteur_fcfa'] as num?)?.toInt() ?? 0,
+    paidOut: json['verse'] == true,
+  );
 }
 
 int toMinutes(String hhmm) {
@@ -504,13 +623,19 @@ class Payment {
     required this.passengers,
     required this.amountFcfa,
     required this.received,
+    this.commissionFcfa = 0,
   });
 
   final String dateLabel;
   final String route;
   final int passengers;
   final int amountFcfa;
+
+  /// « Reçu » : tout l'équipage a validé la fin de la course et l'argent est versé.
   final bool received;
+
+  /// Commission MboaRide (10 %) déjà déduite de [amountFcfa].
+  final int commissionFcfa;
 }
 
 /// Objectif du document de vision : au moins la moitié des frais couverts.

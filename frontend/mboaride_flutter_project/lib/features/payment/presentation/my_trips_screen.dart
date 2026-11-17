@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../core/api_client.dart';
 import '../../../core/mboa_theme.dart';
+import '../../../core/phone_call.dart';
+import '../../ride/live_ride_map.dart';
+import '../../ride/trip_tracking_screen.dart';
 import '../data/payment_repository.dart';
 import '../domain/payment.dart';
 import 'payment_screen.dart';
@@ -10,9 +13,21 @@ import 'payment_screen.dart';
 /// « À confirmer » : place retenue, paiement à faire. « Confirmés » : payés, le conducteur
 /// compte sur vous. Les trajets annulés ou passés sont regroupés en bas.
 class MyTripsScreen extends StatefulWidget {
-  const MyTripsScreen({super.key, required this.repository});
+  const MyTripsScreen({
+    super.key,
+    required this.repository,
+    this.showMapTiles = true,
+    this.routeLoader = roadRouteLoader,
+    this.trackingMode = TrackingMode.gps,
+  });
 
   final PaymentRepository repository;
+
+  /// Réglages du suivi de course (fond de carte, tracé, GPS ou simulation) ; les tests
+  /// coupent le réseau et simulent le déplacement.
+  final bool showMapTiles;
+  final RouteLoader routeLoader;
+  final TrackingMode trackingMode;
 
   @override
   State<MyTripsScreen> createState() => _MyTripsScreenState();
@@ -57,6 +72,26 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
     );
     if (outcome == PaymentOutcome.paid && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trajet confirmé.')));
+    }
+    _load();
+  }
+
+  Future<void> _track(MyTrip trip) async {
+    final done = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => TripTrackingScreen(
+          repository: widget.repository,
+          bookingId: trip.bookingId,
+          showMapTiles: widget.showMapTiles,
+          routeLoader: widget.routeLoader,
+          initialMode: widget.trackingMode,
+        ),
+      ),
+    );
+    if (done == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Fin de course validée. Merci d'avoir voyagé avec MboaRide !")),
+      );
     }
     _load();
   }
@@ -122,8 +157,9 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
               for (final t in toConfirm) _TripCard(trip: t, onPay: () => _pay(t), onCancel: () => _cancel(t)),
             ],
             if (confirmed.isNotEmpty) ...[
-              _title('Confirmés', 'Payés : le conducteur compte sur vous.'),
-              for (final t in confirmed) _TripCard(trip: t, onCancel: () => _cancel(t)),
+              _title('Confirmés', 'Payés : le conducteur compte sur vous. Suivez la course le jour venu.'),
+              for (final t in confirmed)
+                _TripCard(trip: t, onCancel: () => _cancel(t), onTrack: () => _track(t)),
             ],
             if (past.isNotEmpty) ...[
               _title('Annulés et passés', null),
@@ -148,11 +184,12 @@ class _MyTripsScreenState extends State<MyTripsScreen> {
 }
 
 class _TripCard extends StatelessWidget {
-  const _TripCard({required this.trip, this.onPay, this.onCancel});
+  const _TripCard({required this.trip, this.onPay, this.onCancel, this.onTrack});
 
   final MyTrip trip;
   final VoidCallback? onPay;
   final VoidCallback? onCancel;
+  final VoidCallback? onTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -194,6 +231,50 @@ class _TripCard extends StatelessWidget {
                 style: const TextStyle(fontSize: 12.5, color: MboaColors.mutedText)),
           if (trip.state == TripState.toConfirm && trip.failureReason != null)
             Text('Dernier essai : ${trip.failureReason}', style: const TextStyle(fontSize: 12.5, color: MboaColors.red)),
+          if (trip.pickupPoint != null && trip.state != TripState.cancelled && trip.state != TripState.done) ...[
+            const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.place_outlined, size: 18, color: MboaColors.green),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Ramassage : ${trip.pickupPoint}'
+                    '${trip.pickupInstructions == null ? '' : ' · ${trip.pickupInstructions}'}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (trip.state == TripState.confirmed && trip.driverPhone != null)
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Conducteur : ${trip.driverPhone}',
+                      style: const TextStyle(fontSize: 13, color: MboaColors.mutedText)),
+                ),
+                CallButton(phone: trip.driverPhone!, name: trip.driver),
+              ],
+            ),
+          if (trip.state == TripState.done && trip.myRating != null)
+            Text(
+              'Fin de course validée · votre note : ${trip.myRating}/5'
+              '${trip.driverPaid ? ' · conducteur payé' : ''}',
+              style: const TextStyle(fontSize: 12.5, color: MboaColors.green),
+            ),
+          if (onTrack != null) ...[
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+              onPressed: onTrack,
+              icon: const Icon(Icons.navigation_outlined, size: 18),
+              label: Text(trip.courseStatus == CourseStatus.notStarted
+                  ? 'Suivre la course'
+                  : 'Suivre la course · ${trip.courseStatus.label.toLowerCase()}'),
+            ),
+          ],
           if (onPay != null || onCancel != null) ...[
             const SizedBox(height: 10),
             Row(

@@ -45,6 +45,10 @@ class Offer {
     required this.scheduleFits,
     required this.bookable,
     required this.formula,
+    this.pickupPoint,
+    this.pickupInstructions,
+    this.vehicle,
+    this.driverShareFcfa,
   });
 
   final int rideRequestId;
@@ -64,6 +68,14 @@ class Offer {
   final bool scheduleFits;
   final bool bookable;
   final String formula;
+
+  /// Point de ramassage et consignes donnés par le conducteur à la publication.
+  final String? pickupPoint;
+  final String? pickupInstructions;
+  final String? vehicle;
+
+  /// Ce que reçoit le conducteur : le prix moins la commission MboaRide de 10 %.
+  final int? driverShareFcfa;
 
   factory Offer.fromJson(Map<String, dynamic> json) => Offer(
     rideRequestId: (json['id_demande'] as num?)?.toInt() ?? 0,
@@ -85,6 +97,10 @@ class Offer {
     scheduleFits: json['horaires_compatibles'] == true,
     bookable: json['confirmable'] == true,
     formula: json['formule'] as String? ?? '',
+    pickupPoint: json['point_ramassage'] as String?,
+    pickupInstructions: json['consignes_ramassage'] as String?,
+    vehicle: json['vehicule'] as String?,
+    driverShareFcfa: (json['part_conducteur_fcfa'] as num?)?.toInt(),
   );
 
   /// Libellé du cercle tel qu'il est montré au passager.

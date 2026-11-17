@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../core/api_client.dart';
 import '../../../core/mboa_theme.dart';
+import '../../../core/phone_call.dart';
 import '../../../core/road_routing.dart';
+import '../../payment/data/payment_repository.dart';
+import '../../ride/live_ride_map.dart';
 import '../data/driver_repository.dart';
 import '../domain/driver.dart';
 import 'cancel_trip_screen.dart';
 import 'delay_screen.dart';
+import 'driver_ride_screen.dart';
 import 'driver_widgets.dart';
 
 /// Équipage du jour (wireframe 8), sur le modèle de l'écran carte de Cindy : carte en haut,
@@ -18,10 +23,18 @@ class CrewScreen extends StatelessWidget {
     required this.repository,
     required this.crew,
     this.showMapTiles = true,
+    this.walletRepository,
+    this.routeLoader = roadRouteLoader,
+    this.trackingMode = TrackingMode.gps,
   });
 
   final DriverRepository repository;
   final Crew crew;
+
+  /// Portefeuille, pour voir le versement à la fin de la course.
+  final PaymentRepository? walletRepository;
+  final RouteLoader routeLoader;
+  final TrackingMode trackingMode;
 
   /// Fond de carte OpenStreetMap et tracé routier ; désactivés dans les tests (pas de réseau).
   final bool showMapTiles;
@@ -198,10 +211,13 @@ class CrewScreen extends StatelessWidget {
             '${crew.from} → ${crew.to} · ${crew.passengers} place${crew.passengers > 1 ? 's' : ''} sur ${crew.seatsTotal}',
             style: const TextStyle(fontSize: 14, color: MboaColors.mutedText),
           ),
+          const SizedBox(height: 12),
+          _MeetingPointCard(repository: repository, crew: crew),
           const SizedBox(height: 14),
           if (crew.stops.isEmpty)
             const InfoBanner(
-                'L\'ordre de prise en charge s\'affichera ici dès que l\'API fournira le détail de l\'équipage.')
+                'Aucun passager payé pour l\'instant : ils apparaîtront ici, avec leur nom et leur téléphone, '
+                'dès qu\'ils auront payé leur place.')
           else ...[
             const Overline('Ordre de prise en charge'),
             const SizedBox(height: 10),
@@ -210,19 +226,28 @@ class CrewScreen extends StatelessWidget {
             _arrivalRow(),
             const SizedBox(height: 10),
             Text(
-              '${fcfa(crew.totalFcfa)} partagés · paiement Mobile Money après le trajet · '
-              'les échanges passent par l\'application.',
+              '${fcfa(crew.totalFcfa)} payés par vos passagers. MboaRide vous les verse dans votre portefeuille, '
+              'moins 10 % de commission, quand chacun a validé la fin de la course.',
               style: const TextStyle(
                   fontSize: 13, color: MboaColors.mutedText, height: 1.4),
             ),
           ],
           const SizedBox(height: 16),
-          FilledButton(
+          FilledButton.icon(
             onPressed: crew.passengers == 0
                 ? null
-                : () => showDriverMessage(context,
-                    'Bon trajet ! Vos passagers sont prévenus de votre départ.'),
-            child: const Text('Démarrer le trajet'),
+                : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => DriverRideScreen(
+                        repository: repository,
+                        crew: crew,
+                        walletRepository: walletRepository,
+                        showMapTiles: showMapTiles,
+                        routeLoader: routeLoader,
+                        initialMode: trackingMode,
+                      ),
+                    )),
+            icon: const Icon(Icons.navigation),
+            label: Text(crew.courseStatus == CourseStatus.notStarted ? 'Démarrer la course' : 'Reprendre la course'),
           ),
           const SizedBox(height: 10),
           Row(
@@ -265,6 +290,7 @@ class CrewScreen extends StatelessWidget {
   Widget _stopRow(int order, CrewStop stop) => Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
               radius: 15,
@@ -280,18 +306,31 @@ class CrewScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${stop.passenger} · ${stop.place}',
+                  Text('${stop.fullName} · ${stop.place}',
                       style: const TextStyle(
                           fontSize: 14, fontWeight: FontWeight.w700)),
-                  Text('Prise à ${frenchTime(stop.pickupTime)}',
+                  Text(
+                      'Prise à ${frenchTime(stop.pickupTime)}'
+                      '${stop.destination == null ? '' : ' · descend à ${stop.destination}'}',
                       style: const TextStyle(
                           fontSize: 14, color: MboaColors.mutedText)),
+                  if (stop.phone != null)
+                    Text(stop.phone!,
+                        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500)),
+                  Text(
+                    [
+                      stop.rating == null
+                          ? 'Nouveau passager'
+                          : '★ ${stop.rating!.toStringAsFixed(1).replaceAll('.', ',')} (${stop.ratingCount} avis)',
+                      if (stop.student) 'élève (autorisation parentale)',
+                      fcfa(stop.priceFcfa),
+                    ].join(' · '),
+                    style: const TextStyle(fontSize: 12.5, color: MboaColors.mutedText),
+                  ),
                 ],
               ),
             ),
-            Text(fcfa(stop.priceFcfa),
-                style:
-                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+            if (stop.phone != null) CallButton(phone: stop.phone!, name: stop.passenger),
           ],
         ),
       );
@@ -316,6 +355,95 @@ class CrewScreen extends StatelessWidget {
           ),
         ],
       );
+}
+
+/// Point de ramassage du trajet : affiché, et modifiable (les passagers sont prévenus).
+class _MeetingPointCard extends StatefulWidget {
+  const _MeetingPointCard({required this.repository, required this.crew});
+
+  final DriverRepository repository;
+  final Crew crew;
+
+  @override
+  State<_MeetingPointCard> createState() => _MeetingPointCardState();
+}
+
+class _MeetingPointCardState extends State<_MeetingPointCard> {
+  late String? _point = widget.crew.meetingPoint;
+  late String? _instructions = widget.crew.meetingInstructions;
+  late final int _wait = widget.crew.waitMinutes;
+
+  Future<void> _edit() async {
+    final point = TextEditingController(text: _point ?? '');
+    final instructions = TextEditingController(text: _instructions ?? '');
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Point de ramassage'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: point,
+              decoration: const InputDecoration(
+                labelText: 'Lieu exact',
+                hintText: 'Station Total de Logpom, côté boulangerie',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: instructions,
+              decoration: const InputDecoration(
+                labelText: 'Consignes (facultatif)',
+                hintText: 'Berline grise, je klaxonne deux fois',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Annuler')),
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+    if (saved != true) return;
+    try {
+      await widget.repository.setMeetingPoint(
+        widget.crew.tripId,
+        point: point.text,
+        instructions: instructions.text,
+        waitMinutes: _wait,
+      );
+      if (!mounted) return;
+      setState(() {
+        _point = point.text.trim();
+        _instructions = instructions.text.trim().isEmpty ? null : instructions.text.trim();
+      });
+      showDriverMessage(context, 'Point de ramassage enregistré : vos passagers sont prévenus.');
+    } on ApiException catch (e) {
+      if (mounted) showDriverMessage(context, e.message, isError: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => InfoBanner(
+    _point == null
+        ? 'Pas encore précisé : indiquez où vos passagers vous retrouvent (lieu exact, repère).'
+        : '$_point${_instructions == null ? '' : ' · $_instructions'} · attente $_wait min au plus',
+    title: 'Point de ramassage',
+    icon: Icons.place_outlined,
+  ).withAction(TextButton(onPressed: _edit, child: Text(_point == null ? 'Préciser' : 'Modifier')));
+}
+
+extension on Widget {
+  Widget withAction(Widget action) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [this, Align(alignment: Alignment.centerRight, child: action)],
+  );
 }
 
 /// Tracé de l'équipage sur les routes (départ, chaque prise en charge, arrivée), calculé
