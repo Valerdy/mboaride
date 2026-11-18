@@ -30,6 +30,13 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
   final _meetingInstructions = TextEditingController();
   int _waitMinutes = 5;
 
+  /// Trajet ponctuel (une date) plutôt que régulier (jours de la semaine).
+  bool _oneDate = false;
+  DateTime _date = DateUtils.dateOnly(DateTime.now().add(const Duration(days: 1)));
+
+  /// Trajets déjà préparés, publiés ensemble avec celui du formulaire.
+  final List<TripPlan> _queue = [];
+
   TripKind _kind = TripKind.urban;
   Set<int> _days = {1, 2, 3, 4, 5};
   int _seats = 3;
@@ -108,7 +115,8 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
     kind: _kind,
     from: _from.text.trim(),
     to: _to.text.trim(),
-    weekdays: _kind == TripKind.urban ? _days : const {},
+    weekdays: _kind == TripKind.urban && !_oneDate ? _days : const {},
+    date: _kind == TripKind.interurban || _oneDate ? _date : null,
     departure: _departure.text.trim(),
     seats: _seats,
     maxDetourKm: _detourKm,
@@ -140,6 +148,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       setState(() => _error = error);
       return;
     }
+    if (_queue.isNotEmpty) return _publishAll([..._queue, plan]);
     setState(() {
       _publishing = true;
       _error = null;
@@ -154,6 +163,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             ? 'Trajet publié : votre agent répondra aux demandes compatibles.'
             : 'Voyage publié : les voyageurs peuvent réserver une place.',
       );
+      _closeIfPushed();
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -162,6 +172,131 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       });
     }
   }
+
+  /// Plusieurs trajets d'un coup : chacun est publié ou refusé (doublon, lieu inconnu...).
+  Future<void> _publishAll(List<TripPlan> plans) async {
+    setState(() {
+      _publishing = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.repository.publishTrips(plans);
+      if (!mounted) return;
+      setState(() {
+        _publishing = false;
+        _queue
+          ..clear()
+          ..addAll(result.refusals.keys.where((p) => p != plans.last));
+        _error = result.refusals.isEmpty
+            ? null
+            : [for (final e in result.refusals.entries) '${e.key.from} → ${e.key.to} (${e.key.scheduleLabel}) : ${e.value}']
+                  .join('\n');
+      });
+      showDriverMessage(
+        context,
+        '${result.published} trajet${result.published > 1 ? 's' : ''} programmé${result.published > 1 ? 's' : ''}'
+        '${result.refusals.isEmpty ? '' : ', ${result.refusals.length} refusé${result.refusals.length > 1 ? 's' : ''}'}.',
+        isError: result.published == 0,
+      );
+      if (result.refusals.isEmpty) _closeIfPushed();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _publishing = false;
+        _error = error.message;
+      });
+    }
+  }
+
+  /// Ouvert depuis « Mes trajets programmés » : on y revient après la publication.
+  void _closeIfPushed() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) navigator.pop(true);
+  }
+
+  /// Garde le trajet du formulaire dans la liste, pour en préparer un autre.
+  bool _addToQueue() {
+    final plan = _plan;
+    final error = plan.error;
+    if (error != null) {
+      setState(() => _error = error);
+      return false;
+    }
+    setState(() {
+      _queue.add(plan);
+      _error = null;
+    });
+    return true;
+  }
+
+  /// Ajoute le trajet du formulaire à la liste et prépare le retour (départ et arrivée inversés).
+  void _addReturn() {
+    if (!_addToQueue()) return;
+    setState(() {
+      final from = _from.text;
+      _from.text = _to.text;
+      _to.text = from;
+      _departure.text = _kind == TripKind.urban ? '17:30' : _departure.text;
+      _meetingPoint.clear();
+      _meetingInstructions.clear();
+      _distanceKm = null;
+    });
+    _estimate();
+    showDriverMessage(context, 'Aller ajouté. Précisez l\'heure et le point de ramassage du retour.');
+  }
+
+  Future<void> _pickDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date.isBefore(today) ? today : _date,
+      firstDate: today,
+      lastDate: today.add(const Duration(days: 90)),
+      helpText: 'Date du trajet',
+      cancelText: 'Annuler',
+      confirmText: 'Choisir',
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
+
+  Widget _dateTile() => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(48),
+        alignment: Alignment.centerLeft,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      onPressed: _pickDate,
+      icon: const Icon(Icons.event),
+      label: Text('Le ${shortDate(_date)}'),
+    ),
+  );
+
+  Widget _queueCard() => DriverCard(
+    padding: const EdgeInsets.fromLTRB(14, 10, 4, 6),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('${_queue.length} trajet${_queue.length > 1 ? 's' : ''} prêt${_queue.length > 1 ? 's' : ''} '
+            'à programmer avec celui du formulaire',
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+        for (var i = 0; i < _queue.length; i++)
+          Row(
+            children: [
+              const Icon(Icons.schedule, size: 18, color: MboaColors.green),
+              const SizedBox(width: 8),
+              Expanded(child: Text('${_queue[i].from} → ${_queue[i].to} · ${_queue[i].scheduleLabel}')),
+              IconButton(
+                tooltip: 'Retirer de la liste',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => setState(() => _queue.removeAt(i)),
+              ),
+            ],
+          ),
+      ],
+    ),
+  );
 
   Future<void> _addPoint() async {
     final controller = TextEditingController();
@@ -222,6 +357,20 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
           ),
           const SizedBox(height: 12),
           if (!interurban) ...[
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('Chaque semaine'), icon: Icon(Icons.repeat, size: 18)),
+                ButtonSegment(value: true, label: Text('Une date'), icon: Icon(Icons.event, size: 18)),
+              ],
+              selected: {_oneDate},
+              onSelectionChanged: (s) => setState(() => _oneDate = s.first),
+              showSelectedIcon: false,
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (!interurban && _oneDate) _dateTile(),
+          if (interurban) _dateTile(),
+          if (!interurban && !_oneDate) ...[
             const Text('Jours', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
             const SizedBox(height: 6),
             Row(
@@ -233,7 +382,8 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
               ],
             ),
             const SizedBox(height: 12),
-          ] else ...[
+          ],
+          if (interurban) ...[
             const Text('Points de départ possibles', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
             const SizedBox(height: 6),
             Wrap(
@@ -356,9 +506,39 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
             Text(_error!, style: const TextStyle(color: MboaColors.red)),
           ],
           const SizedBox(height: 16),
+          if (_queue.isNotEmpty) ...[
+            _queueCard(),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
+                  onPressed: _publishing ? null : _addToQueue,
+                  icon: const Icon(Icons.playlist_add, size: 18),
+                  label: const Text('Ajouter un autre'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
+                  onPressed: _publishing ? null : _addReturn,
+                  icon: const Icon(Icons.swap_horiz, size: 18),
+                  label: const Text('Ajouter le retour'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           FilledButton(
             onPressed: _publishing ? null : _publish,
-            child: Text(_publishing ? 'Publication…' : (interurban ? 'Publier le voyage' : 'Publier le trajet')),
+            child: Text(_publishing
+                ? 'Publication…'
+                : _queue.isNotEmpty
+                ? 'Programmer les ${_queue.length + 1} trajets'
+                : (interurban ? 'Publier le voyage' : 'Publier le trajet')),
           ),
         ],
       ),

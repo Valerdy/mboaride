@@ -21,6 +21,21 @@ abstract class DriverRepository {
 
   Future<void> publishTrip(TripPlan plan);
 
+  /// Programme plusieurs trajets d'un coup ; chacun est publié ou refusé indépendamment.
+  Future<BatchPublishResult> publishTrips(List<TripPlan> plans);
+
+  /// Trajets programmés : en ligne, retirés ou passés.
+  Future<List<PublishedTrip>> publishedTrips();
+
+  /// Retire un trajet entier : ses passagers sont prévenus, remboursés et réaffectés.
+  Future<int> withdrawTrip(int tripId, {String? reason});
+
+  /// Remet en ligne un trajet retiré ou passé (à une nouvelle date s'il était ponctuel).
+  Future<void> republishTrip(int tripId, {DateTime? date, String? departure});
+
+  /// Rétablit une date annulée d'un trajet régulier.
+  Future<void> restoreDate(int tripId, DateTime date);
+
   /// Ce que l'agent conducteur a fait pour le prochain trajet : réservations et refus.
   Future<List<AgentEvent>> agentActivity();
 
@@ -262,15 +277,59 @@ class ApiDriverRepository implements DriverRepository {
 
   @override
   Future<void> publishTrip(TripPlan plan) async {
+    final result = await publishTrips([plan]);
+    if (result.refusals.isNotEmpty) throw ApiException(result.refusals.values.first, statusCode: 409);
+  }
+
+  @override
+  Future<BatchPublishResult> publishTrips(List<TripPlan> plans) async {
+    final body = await _client.post('$_base/trajets/lot', {'trajets': [for (final p in plans) _planJson(p)]})
+        as Map<String, dynamic>;
+    final refusals = <TripPlan, String>{};
+    for (final r in (body['resultats'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+      if (r['publie'] != true) refusals[plans[(r['rang'] as num).toInt()]] = '${r['erreur']}';
+    }
+    return BatchPublishResult(published: (body['publies'] as num).toInt(), refusals: refusals);
+  }
+
+  @override
+  Future<List<PublishedTrip>> publishedTrips() async => [
+    for (final t in (await _client.get('$_base/trajets') as List<dynamic>).cast<Map<String, dynamic>>())
+      PublishedTrip.fromJson(t),
+  ];
+
+  @override
+  Future<int> withdrawTrip(int tripId, {String? reason}) async {
+    final body = await _client.post('$_base/trajets/$tripId/retrait', {
+      if (reason != null && reason.trim().isNotEmpty) 'motif': reason.trim(),
+    }) as Map<String, dynamic>;
+    return (body['reservations_annulees'] as num?)?.toInt() ?? 0;
+  }
+
+  @override
+  Future<void> republishTrip(int tripId, {DateTime? date, String? departure}) async {
+    await _client.post('$_base/trajets/$tripId/republication', {
+      if (date != null) 'date_trajet': _isoDate(date),
+      if (departure != null) 'heure_depart': departure,
+    });
+  }
+
+  @override
+  Future<void> restoreDate(int tripId, DateTime date) async {
+    await _client.delete('$_base/trajets/$tripId/annulations/${_isoDate(date)}');
+  }
+
+  Map<String, dynamic> _planJson(TripPlan plan) {
     final interurban = plan.kind == TripKind.interurban;
-    await _client.post('$_base/trajets', {
+    final oneOff = plan.date ?? (plan.weekdays.isEmpty ? DateTime.now().add(const Duration(days: 1)) : null);
+    return {
       'type_trajet': interurban ? 'interurbain' : 'urbain',
       'depart': plan.from.trim(),
       'arrivee': plan.to.trim(),
       'heure_depart': plan.departure,
-      'jours_semaine': plan.weekdays.toList()..sort(),
-      // Voyage interurbain sans jour régulier : il part demain.
-      if (plan.weekdays.isEmpty) 'date_trajet': _isoDate(DateTime.now().add(const Duration(days: 1))),
+      'jours_semaine': oneOff == null ? (plan.weekdays.toList()..sort()) : <int>[],
+      // Trajet ponctuel : sa date (sans date ni jour, il part demain).
+      if (oneOff != null) 'date_trajet': _isoDate(oneOff),
       'places': plan.seats,
       'detour_max_km': plan.maxDetourKm,
       'peage_fcfa': plan.tollsFcfa,
@@ -278,7 +337,7 @@ class ApiDriverRepository implements DriverRepository {
       'point_ramassage': plan.meetingPoint.trim(),
       if (plan.meetingInstructions.trim().isNotEmpty) 'consignes_ramassage': plan.meetingInstructions.trim(),
       'attente_max_min': plan.waitMinutes,
-    });
+    };
   }
 
   @override
@@ -534,6 +593,105 @@ class FakeDriverRepository implements DriverRepository {
     final error = plan.error;
     if (error != null) throw ApiException(error, statusCode: 422);
     published.add(plan);
+  }
+
+  @override
+  Future<BatchPublishResult> publishTrips(List<TripPlan> plans) async {
+    await _wait();
+    if (!_approval.approved) {
+      throw ApiException('Votre agrément doit être validé avant de publier un trajet.', statusCode: 403);
+    }
+    final refusals = <TripPlan, String>{};
+    for (final plan in plans) {
+      final duplicate = published.any((p) =>
+          p.from == plan.from && p.to == plan.to && p.departure == plan.departure &&
+          p.date == plan.date && p.weekdays.length == plan.weekdays.length &&
+          p.weekdays.containsAll(plan.weekdays));
+      final error = plan.error ?? (duplicate ? 'Ce trajet est déjà publié' : null);
+      if (error != null) {
+        refusals[plan] = error;
+      } else {
+        published.add(plan);
+        _trips.insert(0, PublishedTrip(
+          id: 200 + _trips.length, kind: plan.kind, state: PublishedState.active, from: plan.from, to: plan.to,
+          departure: plan.departure, weekdays: plan.weekdays, seats: plan.seats, date: plan.date,
+          meetingPoint: plan.meetingPoint, nextDeparture: plan.date ?? DateTime.now().add(const Duration(days: 1)),
+        ));
+      }
+    }
+    return BatchPublishResult(published: plans.length - refusals.length, refusals: refusals);
+  }
+
+  /// Trajets programmés de démonstration : l'aller d'Armand, son retour retiré, un voyage passé.
+  final List<PublishedTrip> _trips = [
+    PublishedTrip(
+      id: 101, kind: TripKind.urban, state: PublishedState.active, from: 'Logpom', to: 'Bonabéri',
+      departure: '06:45', weekdays: const {1, 2, 3, 4, 5}, seats: 3,
+      meetingPoint: 'Station Total de Logpom, côté boulangerie', upcomingBookings: 3,
+      nextDeparture: DateTime.now().add(const Duration(days: 1)),
+      cancelledDates: [DateTime.now().add(const Duration(days: 3))],
+    ),
+    const PublishedTrip(
+      id: 102, kind: TripKind.urban, state: PublishedState.withdrawn, from: 'Bonabéri', to: 'Logpom',
+      departure: '17:30', weekdays: {1, 2, 3, 4, 5}, seats: 3, meetingPoint: 'Carrefour Bonabéri, devant la pharmacie',
+    ),
+    PublishedTrip(
+      id: 103, kind: TripKind.interurban, state: PublishedState.past, from: 'Douala', to: 'Yaoundé',
+      departure: '14:00', weekdays: const {}, seats: 4, date: DateTime(2026, 11, 2), meetingPoint: 'Agence de Bonanjo',
+    ),
+  ];
+
+  @override
+  Future<List<PublishedTrip>> publishedTrips() async {
+    await _wait();
+    return List.unmodifiable(_trips);
+  }
+
+  PublishedTrip _with(PublishedTrip t, {PublishedState? state, DateTime? date, List<DateTime>? cancelledDates}) =>
+      PublishedTrip(
+        id: t.id, kind: t.kind, state: state ?? t.state, from: t.from, to: t.to, departure: t.departure,
+        weekdays: t.weekdays, seats: t.seats, date: date ?? t.date, meetingPoint: t.meetingPoint,
+        cancelledDates: cancelledDates ?? t.cancelledDates, upcomingBookings: state == PublishedState.withdrawn ? 0 : t.upcomingBookings,
+        nextDeparture: state == PublishedState.withdrawn ? null : (date ?? t.nextDeparture),
+      );
+
+  void _replace(int id, PublishedTrip Function(PublishedTrip) change) {
+    final i = _trips.indexWhere((t) => t.id == id);
+    if (i < 0) throw ApiException('Trajet introuvable', statusCode: 404);
+    _trips[i] = change(_trips[i]);
+  }
+
+  @override
+  Future<int> withdrawTrip(int tripId, {String? reason}) async {
+    await _wait();
+    var passengers = 0;
+    _replace(tripId, (t) {
+      if (t.state == PublishedState.withdrawn) throw ApiException('Ce trajet est déjà retiré', statusCode: 409);
+      passengers = t.upcomingBookings;
+      return _with(t, state: PublishedState.withdrawn);
+    });
+    return passengers;
+  }
+
+  @override
+  Future<void> republishTrip(int tripId, {DateTime? date, String? departure}) async {
+    await _wait();
+    _replace(tripId, (t) {
+      if (t.state == PublishedState.active) throw ApiException('Ce trajet est déjà en ligne', statusCode: 409);
+      if (t.oneOff && date == null) {
+        throw ApiException("Choisissez une nouvelle date, aujourd'hui ou plus tard", statusCode: 422);
+      }
+      return _with(t, state: PublishedState.active, date: date);
+    });
+  }
+
+  @override
+  Future<void> restoreDate(int tripId, DateTime date) async {
+    await _wait();
+    _replace(tripId, (t) => _with(t, cancelledDates: [
+      for (final d in t.cancelledDates)
+        if (!(d.year == date.year && d.month == date.month && d.day == date.day)) d,
+    ]));
   }
 
   @override

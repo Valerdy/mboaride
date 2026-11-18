@@ -215,9 +215,13 @@ class TripPlan {
     this.meetingPoint = '',
     this.meetingInstructions = '',
     this.waitMinutes = 5,
+    this.date,
   });
 
   final TripKind kind;
+
+  /// Trajet ponctuel : sa date. Null pour un trajet régulier (jours de la semaine).
+  final DateTime? date;
   final String from;
   final String to;
 
@@ -252,6 +256,8 @@ class TripPlan {
     String? meetingPoint,
     String? meetingInstructions,
     int? waitMinutes,
+    DateTime? date,
+    bool clearDate = false,
   }) => TripPlan(
     kind: kind ?? this.kind,
     from: from ?? this.from,
@@ -265,7 +271,11 @@ class TripPlan {
     meetingPoint: meetingPoint ?? this.meetingPoint,
     meetingInstructions: meetingInstructions ?? this.meetingInstructions,
     waitMinutes: waitMinutes ?? this.waitMinutes,
+    date: clearDate ? null : (date ?? this.date),
   );
+
+  /// « Lun. à ven. · 06:45 », « Mer. 19 nov. · 09:00 ».
+  String get scheduleLabel => '${date == null ? weekdaysLabel(weekdays) : shortDate(date!)} · $departure';
 
   static final RegExp _time = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
 
@@ -273,8 +283,8 @@ class TripPlan {
     if (from.trim().isEmpty || to.trim().isEmpty) {
       return 'Indiquez le départ et l\'arrivée.';
     }
-    if (kind == TripKind.urban && weekdays.isEmpty) {
-      return 'Choisissez au moins un jour.';
+    if (kind == TripKind.urban && weekdays.isEmpty && date == null) {
+      return 'Choisissez au moins un jour, ou une date.';
     }
     if (!_time.hasMatch(departure)) return 'Heure au format HH:MM, par exemple 06:45.';
     if (seats < Vehicle.minSeats || seats > Vehicle.maxSeats) {
@@ -287,6 +297,99 @@ class TripPlan {
     if (waitMinutes < 0 || waitMinutes > 30) return 'Attente entre 0 et 30 minutes.';
     return null;
   }
+}
+
+const List<String> _shortDays = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
+const List<String> _shortMonths = [
+  'janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.',
+];
+
+/// « mer. 19 nov. ».
+String shortDate(DateTime d) => '${_shortDays[d.weekday - 1]} ${d.day} ${_shortMonths[d.month - 1]}';
+
+/// {1, 2, 3, 4, 5} -> « Lun. à ven. » ; {6, 7} -> « Sam., dim. » ; tous -> « Tous les jours ».
+String weekdaysLabel(Set<int> days) {
+  final sorted = days.toList()..sort();
+  if (sorted.length == 7) return 'Tous les jours';
+  if (sorted.isEmpty) return 'Aucun jour';
+  final consecutive = sorted.length >= 3 && sorted.last - sorted.first == sorted.length - 1;
+  String cap(String s) => s[0].toUpperCase() + s.substring(1);
+  if (consecutive) return '${cap(_shortDays[sorted.first - 1])} à ${_shortDays[sorted.last - 1]}';
+  return cap(sorted.map((d) => _shortDays[d - 1]).join(', '));
+}
+
+/// Un trajet programmé par le conducteur, en ligne, retiré ou passé.
+enum PublishedState { active, withdrawn, past }
+
+class PublishedTrip {
+  const PublishedTrip({
+    required this.id,
+    required this.kind,
+    required this.state,
+    required this.from,
+    required this.to,
+    required this.departure,
+    required this.weekdays,
+    required this.seats,
+    this.date,
+    this.meetingPoint,
+    this.cancelledDates = const [],
+    this.upcomingBookings = 0,
+    this.nextDeparture,
+  });
+
+  final int id;
+  final TripKind kind;
+  final PublishedState state;
+  final String from;
+  final String to;
+  final String departure;
+  final Set<int> weekdays;
+  final DateTime? date;
+  final int seats;
+  final String? meetingPoint;
+
+  /// Dates à venir où le conducteur a annulé ce trajet (il peut les rétablir).
+  final List<DateTime> cancelledDates;
+  final int upcomingBookings;
+  final DateTime? nextDeparture;
+
+  bool get oneOff => date != null;
+
+  String get scheduleLabel => '${date == null ? weekdaysLabel(weekdays) : shortDate(date!)} · $departure';
+
+  factory PublishedTrip.fromJson(Map<String, dynamic> json) {
+    DateTime? day(Object? v) => v == null ? null : DateTime.parse(v as String);
+    return PublishedTrip(
+      id: (json['id_trajet'] as num).toInt(),
+      kind: json['type_trajet'] == 'interurbain' ? TripKind.interurban : TripKind.urban,
+      state: switch (json['etat']) {
+        'retire' => PublishedState.withdrawn,
+        'passe' => PublishedState.past,
+        _ => PublishedState.active,
+      },
+      from: json['depart'] as String,
+      to: json['arrivee'] as String,
+      departure: json['heure_depart'] as String,
+      weekdays: {for (final d in (json['jours_semaine'] as List<dynamic>? ?? const [])) (d as num).toInt()},
+      seats: (json['places'] as num).toInt(),
+      date: day(json['date_unique']),
+      meetingPoint: json['point_ramassage'] as String?,
+      cancelledDates: [for (final d in (json['dates_annulees'] as List<dynamic>? ?? const [])) DateTime.parse(d as String)],
+      upcomingBookings: (json['reservations_a_venir'] as num?)?.toInt() ?? 0,
+      nextDeparture: day(json['prochain_depart']),
+    );
+  }
+}
+
+/// Résultat d'une publication de plusieurs trajets : chacun publié ou refusé (motif).
+class BatchPublishResult {
+  const BatchPublishResult({required this.published, required this.refusals});
+
+  final int published;
+
+  /// Trajet refusé -> motif (« Ce trajet est déjà publié », « Lieu inconnu »...).
+  final Map<TripPlan, String> refusals;
 }
 
 /// Prix d'un passager selon le nombre de passagers à bord (règle du produit, hors détour).

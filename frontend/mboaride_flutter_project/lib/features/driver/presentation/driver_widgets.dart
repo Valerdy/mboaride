@@ -193,7 +193,10 @@ class ErrorView extends StatelessWidget {
 }
 
 void showDriverMessage(BuildContext context, String message, {bool isError = false}) {
-  ScaffoldMessenger.of(context).showSnackBar(
+  // Le nouveau message remplace le précédent au lieu d'attendre derrière lui.
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
     SnackBar(
       content: Text(message),
       backgroundColor: isError ? MboaColors.red : MboaColors.green,

@@ -41,6 +41,19 @@ Puis :
 
    `.env.local` reste sur le PC : il n'est jamais envoyé sur GitHub.
 
+4. Pour que le **code de vérification** arrive par e-mail (sinon il reste dans la fenêtre
+   « MboaRide - API Node » et s'affiche dans l'application) :
+   - sur le compte Gmail qui enverra les codes : Sécurité > Validation en deux étapes
+     (l'activer), puis Sécurité > Mots de passe des applications > créer « MboaRide » ;
+   - dans `.env.local`, remplir :
+
+     ```
+     SMTP_USER=adresse.qui.envoie@gmail.com
+     SMTP_PASS=les 16 lettres du mot de passe d'application
+     ```
+
+   Au lancement, le script affiche « Codes de vérification envoyés par e-mail depuis ... ».
+
 ---
 
 ## À chaque fois : lancer le projet
@@ -169,4 +182,5 @@ Les tests de l'API Python ont besoin d'une base PostgreSQL de test : voir
 | téléphone `unauthorized` dans `adb devices` | accepter « Autoriser le débogage USB » sur le téléphone |
 | « Building with plugins requires symlink support » | activer le mode développeur de Windows |
 | « Votre session a expiré » | se reconnecter |
+| le code de vérification n'arrive pas par e-mail | `SMTP_USER` / `SMTP_PASS` vides ou faux dans `.env.local` (mot de passe d'application, pas celui de Gmail), puis relancer ; regarder aussi les spams |
 | aucune offre de trajet | voir le tableau « En cas de problème » de [demarrage-local.md](demarrage-local.md) |

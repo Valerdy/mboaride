@@ -42,6 +42,17 @@ if (-not $conf['SECRET_KEY'] -or $conf['SECRET_KEY'].Length -lt 32) {
     Write-Host 'Secret partagé généré et ajouté à .env.local.'
 }
 foreach ($cle in 'PG_HOST', 'PG_PORT', 'PG_USER', 'PG_PASSWORD') { Set-Item "env:$cle" $conf[$cle] }
+# Code de vérification : par e-mail (Gmail) si SMTP_USER et SMTP_PASS sont remplis. Sinon le
+# code reste dans la console de l'API Node et s'affiche dans l'application (démonstration).
+foreach ($cle in 'OTP_CHANNEL', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS') { if (-not $conf[$cle]) { $conf[$cle] = '' } }
+if (-not $conf['OTP_CHANNEL']) { $conf['OTP_CHANNEL'] = 'email' }
+if (-not $conf['SMTP_HOST']) { $conf['SMTP_HOST'] = 'smtp.gmail.com' }
+if (-not $conf['SMTP_PORT']) { $conf['SMTP_PORT'] = '587' }
+$emailActif = [bool]($conf['SMTP_USER'] -and $conf['SMTP_PASS'])
+$conf['EXPOSE_DEV_CODE'] = if ($emailActif) { '0' } else { '1' }
+if ($emailActif) { Write-Host "Codes de vérification envoyés par e-mail depuis $($conf['SMTP_USER'])." } else {
+    Write-Host 'Codes de vérification : pas de SMTP_USER / SMTP_PASS dans .env.local, le code reste dans la console.' -ForegroundColor Yellow
+}
 $env:PG_DATABASE = 'mboaride'
 
 # --- 2. Environnement Python ---------------------------------------------------------------------
@@ -73,7 +84,12 @@ $cmdNode = @"
 `$env:DATABASE_URL = '$urlBase'
 `$env:SECRET_KEY = '$($conf['SECRET_KEY'])'
 `$env:PORT = '$PortAuth'
-`$env:EXPOSE_DEV_CODE = '1'
+`$env:EXPOSE_DEV_CODE = '$($conf['EXPOSE_DEV_CODE'])'
+`$env:OTP_CHANNEL = '$($conf['OTP_CHANNEL'])'
+`$env:SMTP_HOST = '$($conf['SMTP_HOST'])'
+`$env:SMTP_PORT = '$($conf['SMTP_PORT'])'
+`$env:SMTP_USER = '$($conf['SMTP_USER'])'
+`$env:SMTP_PASS = '$($conf['SMTP_PASS'].Replace("'", "''"))'
 `$env:ACCESS_TOKEN_MINUTES = '720'
 `$env:OSRM_URL = 'https://router.project-osrm.org'
 `$env:OSRM_TIMEOUT_MS = '12000'  # le serveur public met plusieurs secondes depuis le Cameroun

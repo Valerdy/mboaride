@@ -465,7 +465,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                 title: const Text('Trajet urbain (Douala)', style: TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () => Navigator.pop(context),
               ),
-              _drawerItem(Icons.event_seat_rounded, 'Mes trajets (à confirmer, confirmés)',
+              _drawerItem(Icons.event_seat_rounded, 'Mes trajets',
                   MyTripsScreen(repository: AppServices.payments)),
               _drawerItem(Icons.account_balance_wallet_rounded, 'Mon portefeuille',
                   WalletScreen(repository: AppServices.payments)),
