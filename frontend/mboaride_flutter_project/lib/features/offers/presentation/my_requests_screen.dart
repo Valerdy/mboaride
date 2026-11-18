@@ -233,7 +233,7 @@ class _Shortcut extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFDCE3DE)),
+        border: Border.all(color: MboaColors.line),
       ),
       child: Column(
         children: [

@@ -21,6 +21,7 @@ import '../services/session.dart';
 import '../features/ride_request/data/ride_request_repository.dart';
 import '../features/ride_request/domain/ride_request.dart';
 import 'profile_screen.dart';
+import '../core/mboa_theme.dart';
 
 class RequestRideScreen extends StatefulWidget {
   final String token;
@@ -103,10 +104,10 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   List<LatLng> _routePoints = [];
   String _routeSummary = '';
 
-  static const Color primaryGreen = Color(0xFF0B6647);
-  static const Color darkGreen = Color(0xFF074731);
-  static const Color softGreen = Color(0xFFE6F2ED);
-  static const Color bgBeige = Color(0xFFF6F5F0);
+  static const Color primaryGreen = MboaColors.green;
+  static const Color darkGreen = MboaColors.greenDeep;
+  static const Color softGreen = MboaColors.greenSoft;
+  static const Color bgBeige = MboaColors.sand;
 
   final Map<String, LatLng> _doualaNeighborhoods = {
     'Logpom': const LatLng(4.0846, 9.7562),
@@ -438,11 +439,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(22),
                 decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [primaryGreen, darkGreen],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  gradient: MboaDecor.brandGradient,
+                  borderRadius: BorderRadius.only(bottomRight: Radius.circular(28)),
                 ),
                 child: const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -498,9 +496,9 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
               ),
               const Spacer(),
               ListTile(
-                leading: const Icon(Icons.logout, color: Colors.red),
+                leading: const Icon(Icons.logout, color: MboaColors.red),
                 title: const Text('Se déconnecter',
-                    style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red)),
+                    style: TextStyle(fontWeight: FontWeight.w600, color: MboaColors.red)),
                 onTap: () {
                   Navigator.pop(context);
                   Session.confirmSignOut(context);
@@ -514,19 +512,15 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.only(top: 46, bottom: 24, left: 16, right: 16),
+            padding: const EdgeInsets.only(top: 46, bottom: 26, left: 16, right: 16),
             decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [primaryGreen, darkGreen],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              gradient: MboaDecor.brandGradient,
               borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(28),
-                bottomRight: Radius.circular(28),
+                bottomLeft: Radius.circular(32),
+                bottomRight: Radius.circular(32),
               ),
               boxShadow: [
-                BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
+                BoxShadow(color: Color(0x290B6E4F), blurRadius: 24, offset: Offset(0, 10)),
               ],
             ),
             child: Row(
@@ -560,7 +554,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                     ],
                   ),
                 ),
-                NotificationBell(repository: AppServices.notifications),
+                NotificationBell(repository: AppServices.notifications, color: Colors.white),
                 IconButton(
                   onPressed: _openProfile,
                   tooltip: 'Mon profil',
@@ -595,7 +589,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                           children: [
                             const Icon(Icons.radio_button_checked, color: primaryGreen, size: 18),
                             Container(width: 2, height: 34, color: Colors.grey.shade300),
-                            const Icon(Icons.location_on, color: Colors.redAccent, size: 20),
+                            const Icon(Icons.location_on, color: MboaColors.red, size: 20),
                           ],
                         ),
                         const SizedBox(width: 12),
@@ -836,7 +830,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                                       point: _destCoords!,
                                       width: 40,
                                       height: 40,
-                                      child: const Icon(Icons.location_on, color: Colors.redAccent, size: 36),
+                                      child: const Icon(Icons.location_on, color: MboaColors.red, size: 36),
                                     ),
                                 ],
                               ),

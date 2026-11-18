@@ -191,7 +191,7 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget _balanceCard(Wallet w) => Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [MboaColors.green, Color(0xFF074731)]),
+          gradient: MboaDecor.brandGradient,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Column(
@@ -255,7 +255,7 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Widget _info(IconData icon, String text) => Container(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: const Color(0xFFE6F2ED), borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(color: MboaColors.greenSoft, borderRadius: BorderRadius.circular(12)),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -280,7 +280,7 @@ class _WalletScreenState extends State<WalletScreen> {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: CircleAvatar(
-        backgroundColor: credit ? const Color(0xFFE6F2ED) : const Color(0xFFEDEFEE),
+        backgroundColor: credit ? MboaColors.greenSoft : MboaColors.neutralSoft,
         child: Icon(icon, color: credit ? MboaColors.green : MboaColors.mutedText),
       ),
       title: Text(m.label, style: const TextStyle(fontSize: 14)),

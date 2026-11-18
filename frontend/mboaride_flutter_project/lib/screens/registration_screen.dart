@@ -4,6 +4,7 @@ import '../app_services.dart';
 import '../features/driver/presentation/driver_shell.dart';
 import '../services/auth_service.dart';
 import 'request_ride_screen.dart';
+import '../core/mboa_theme.dart';
 
 /// Écran ouvert après la connexion : la demande de trajet (passager), ou directement
 /// l'espace conducteur avec `--dart-define=START=driver` (téléphone du conducteur).
@@ -42,11 +43,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   String _normalizedPhoneForVerify = '';
 
   // Couleurs exactes de votre maquette
-  static const Color headerGreen = Color(0xFF0E6B4B);
-  static const Color bgCream = Color(0xFFF3F2ED);
-  static const Color borderGrey = Color(0xFFD5D4CE);
-  static const Color textDark = Color(0xFF2B2D2C);
-  static const Color textMuted = Color(0xFF6B6E6C);
+  static const Color headerGreen = MboaColors.green;
+  static const Color bgCream = MboaColors.sand;
+  static const Color borderGrey = MboaColors.border;
+  static const Color textDark = MboaColors.night;
+  static const Color textMuted = MboaColors.mutedText;
 
   @override
   void initState() {
@@ -98,9 +99,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red.shade700 : headerGreen,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: isError ? MboaColors.red : MboaColors.night,
       ),
     );
   }
@@ -239,21 +238,32 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           // En-tête vert fidèle à la maquette
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.only(top: 52, bottom: 24, left: 22, right: 22),
+            padding: const EdgeInsets.only(top: 56, bottom: 28, left: 24, right: 24),
             decoration: const BoxDecoration(
-              color: headerGreen,
+              gradient: MboaDecor.brandGradient,
               borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(24),
-                bottomRight: Radius.circular(24),
+                bottomLeft: Radius.circular(32),
+                bottomRight: Radius.circular(32),
               ),
             ),
-            child: Text(
-              _isLoginMode ? 'Se connecter' : 'Créer mon compte',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 23,
-                fontWeight: FontWeight.bold,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isLoginMode ? 'Se connecter' : 'Créer mon compte',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _isLoginMode ? 'Bon retour sur MboaRide.' : 'Le covoiturage entre collègues, à Douala.',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.82), fontSize: 14),
+                ),
+              ],
             ),
           ),
 
@@ -328,7 +338,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               backgroundColor: headerGreen,
               foregroundColor: Colors.white,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: const StadiumBorder(),
             ),
             child: _isLoading
                 ? const SizedBox(
@@ -366,7 +376,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: borderGrey),
           ),
           child: Text(
@@ -419,7 +429,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               backgroundColor: headerGreen,
               foregroundColor: Colors.white,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: const StadiumBorder(),
             ),
             child: const Text(
               'Vérifier',
@@ -487,7 +497,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               backgroundColor: headerGreen,
               foregroundColor: Colors.white,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: const StadiumBorder(),
             ),
             child: _isLoading
                 ? const SizedBox(
@@ -540,11 +550,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         suffixIcon: suffixIcon,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: borderGrey),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: headerGreen, width: 1.5),
         ),
       ),
@@ -575,11 +585,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           fillColor: Colors.white,
           contentPadding: EdgeInsets.zero,
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             borderSide: const BorderSide(color: borderGrey),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             borderSide: const BorderSide(color: headerGreen, width: 1.5),
           ),
         ),

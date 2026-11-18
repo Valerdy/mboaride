@@ -208,11 +208,8 @@ class _CompanyConsoleScreenState extends State<CompanyConsoleScreen> {
             padding: const EdgeInsets.only(right: 12),
             child: TextButton.icon(
               onPressed: _openCsv,
-              icon: const Icon(Icons.download, color: Colors.white),
-              label: const Text(
-                'Export CSV',
-                style: TextStyle(color: Colors.white),
-              ),
+              icon: const Icon(Icons.download),
+              label: const Text('Export CSV'),
             ),
           ),
       ],
@@ -312,7 +309,7 @@ class _Panel extends StatelessWidget {
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFFDCE3DE)),
+      border: Border.all(color: MboaColors.line),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,

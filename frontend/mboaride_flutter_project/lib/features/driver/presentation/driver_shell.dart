@@ -61,7 +61,6 @@ class _DriverShellState extends State<DriverShell> {
         selectedIndex: _tab,
         onDestinationSelected: _open,
         backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFE6F2ED),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
