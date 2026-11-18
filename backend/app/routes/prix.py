@@ -27,9 +27,18 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import moteur
+from .. import moteur, parametres
 from ..db import get_conn
 from ..securite import utilisateur_courant
+
+
+def _formule() -> str:
+    """La règle de prix, avec les réglages courants de la console."""
+    p = parametres.valeurs()
+    pct = p["commission_pct"]
+    return ("(trajet commun + détour) × consommation / 100 × prix du litre (+ péage) ÷ occupants à bord, "
+            f"÷ {moteur.fr(1 - pct / 100)} pour la commission MboaRide de {pct} %, arrondi aux "
+            f"{p['arrondi_fcfa']} FCFA supérieurs ({p['prix_minimum_fcfa']} FCFA au moins)")
 
 router = APIRouter(prefix="/api", tags=["US09 · Prix avant confirmation"])
 
@@ -168,8 +177,7 @@ def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
         "detour_km": h[2] if h else None,
         "horaires_compatibles": h is not None,
         "confirmable": det.prix_fcfa <= d["prix_max_fcfa"] and h is not None,
-        "formule": "(trajet commun + détour) × consommation / 100 × prix du litre (+ péage) ÷ occupants à bord, "
-                   "÷ 0,9 pour la commission MboaRide de 10 %, arrondi aux 25 FCFA supérieurs (100 FCFA au moins)",
+        "formule": _formule(),
         "passagers_deja_a_bord": deja_a_bord,
         "part_conducteur_fcfa": det.prix_fcfa - det.commission_fcfa,
         "vehicule": f"{t['marque_modele']} · {t['immatriculation']}" if t.get("marque_modele") else None,

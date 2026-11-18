@@ -101,12 +101,24 @@ Start-Process powershell -ArgumentList '-NoExit', '-Command', $cmdNode
 # --- 5. API Python ---------------------------------------------------------------------------------
 Etape "API Python : métier, moteur d'agents et console web (port $PortApi)"
 $dsn = "host=$($conf['PG_HOST']) port=$($conf['PG_PORT']) user=$($conf['PG_USER']) password=$($conf['PG_PASSWORD']) dbname=mboaride"
+# Même compte Gmail que les codes : les messages envoyés depuis la console d'administration
+# partent aussi par e-mail (sinon ils sont seulement enregistrés, « simulés »).
+$smtpPy = ''
+if ($emailActif) {
+    $smtpPy = @"
+`$env:MBOARIDE_SMTP_HOST = '$($conf['SMTP_HOST'])'
+`$env:MBOARIDE_SMTP_PORT = '$($conf['SMTP_PORT'])'
+`$env:MBOARIDE_SMTP_USER = '$($conf['SMTP_USER'])'
+`$env:MBOARIDE_SMTP_PASSWORD = '$(($conf['SMTP_PASS'] -replace '\s', '').Replace("'", "''"))'
+"@
+}
 $cmdPy = @"
 `$Host.UI.RawUI.WindowTitle = 'MboaRide - API Python ($PortApi)'
 `$env:MBOARIDE_DSN = '$($dsn.Replace("'", "''"))'
 `$env:MBOARIDE_SECRET_KEY = '$($conf['SECRET_KEY'])'
 `$env:MBOARIDE_AGREMENT_AUTO = '1'
 `$env:MBOARIDE_SIMULATION = '1'
+$smtpPy
 Set-Location -LiteralPath '$Backend'
 & '$Py' -m uvicorn app.main:app --host 127.0.0.1 --port $PortApi
 "@

@@ -51,6 +51,10 @@
     lock: '<rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M4 20h16"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
+    flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+    building: '<rect x="4" y="3" width="11" height="18" rx="1.5"/><path d="M15 9h4.5a.5.5 0 0 1 .5.5V21M8 7h3M8 11h3M8 15h3M3 21h18"/>',
+    megaphone: '<path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1z"/><path d="M17 8.5a5 5 0 0 1 0 7M7 15l1.5 5"/>',
+    sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
   };
@@ -64,6 +68,8 @@
     paiement: { reussi: ['good', 'Réussi'], en_attente: ['warn', 'En attente'], echoue: ['bad', 'Échoué'], rembourse: ['', 'Remboursé'] },
     course: { en_cours: ['info', 'En cours'], arrivee: ['warn', 'Arrivée'], reglee: ['good', 'Réglée'] },
     role: { super_admin: ['info', 'Super admin'], support: ['info', 'Support'], finance: ['info', 'Finance'] },
+    decision: { classe: ['', 'Classé sans suite'], avertissement: ['warn', 'Avertissement'],
+      suspension_agrement: ['bad', 'Agrément suspendu'], suspension_compte: ['bad', 'Compte suspendu'] },
   };
   const pastille = (famille, v) => {
     const [ton, txt] = PASTILLES[famille]?.[v] || ['', v || '—'];
@@ -374,8 +380,12 @@
     { id: 'utilisateurs', titre: 'Utilisateurs', icone: 'users', section: 'Opérations' },
     { id: 'agrements', titre: 'Agréments', icone: 'shield', section: 'Opérations' },
     { id: 'trajets', titre: 'Trajets et courses', icone: 'route', section: 'Opérations' },
+    { id: 'signalements', titre: 'Signalements', icone: 'flag', section: 'Opérations' },
+    { id: 'organisations', titre: 'Organisations', icone: 'building', section: 'Clients' },
+    { id: 'communication', titre: 'Communication', icone: 'megaphone', section: 'Clients' },
     { id: 'paiements', titre: 'Paiements', icone: 'card', section: 'Argent' },
     { id: 'finances', titre: 'Finances', icone: 'chart', section: 'Argent' },
+    { id: 'parametres', titre: 'Paramètres', icone: 'sliders', section: 'Réglages' },
     { id: 'equipe', module: 'administrateurs', titre: 'Équipe MboaRide', icone: 'key', section: 'Réglages' },
     { id: 'journal', titre: "Journal d'audit", icone: 'list', section: 'Réglages' },
   ];
@@ -386,7 +396,8 @@
     const nav = visibles.map((r) => {
       const titre = r.section !== section ? `<div class="nav-section">${esc(r.section)}</div>` : '';
       section = r.section;
-      return `${titre}<a href="#/${r.id}" data-route="${r.id}">${ico(r.icone)}<span>${esc(r.titre)}</span>${r.id === 'agrements' ? '<span class="badge" id="badge-agrements" hidden></span>' : ''}</a>`;
+      const badge = ['agrements', 'signalements'].includes(r.id) ? `<span class="badge" id="badge-${r.id}" hidden></span>` : '';
+      return `${titre}<a href="#/${r.id}" data-route="${r.id}">${ico(r.icone)}<span>${esc(r.titre)}</span>${badge}</a>`;
     }).join('');
     const nom = `${moi.prenom} ${moi.nom}`;
     $('#racine').innerHTML = `<div class="app">
@@ -416,13 +427,13 @@
   }
 
   async function majBadge() {
-    const b = $('#badge-agrements');
-    if (!b) return;
+    if (!$('#badge-agrements') && !$('#badge-signalements')) return;
     try {
-      const tb = await api('/api/admin/tableau-de-bord?jours=1');
-      const n = tb.indicateurs.agrements_en_attente;
-      b.textContent = n;
-      b.hidden = !n;
+      const i = (await api('/api/admin/tableau-de-bord?jours=1')).indicateurs;
+      [['agrements', i.agrements_en_attente], ['signalements', i.signalements_a_traiter]].forEach(([id, n]) => {
+        const b = $(`#badge-${id}`);
+        if (b) { b.textContent = n; b.hidden = !n; }
+      });
     } catch { /* indicatif seulement */ }
   }
 
@@ -502,7 +513,7 @@
             <dt>Paiements échoués</dt><dd class="num">${nb(i.paiements_echoues)}</dd>
             <dt>Soldes des portefeuilles</dt><dd class="num">${fcfa(i.soldes_portefeuilles_fcfa)}</dd>
             <dt>Note moyenne</dt><dd class="num">${i.note_moyenne ? `${Number(i.note_moyenne).toLocaleString('fr-FR')} / 5` : '—'}</dd>
-            <dt>Signalements graves</dt><dd class="num">${nb(i.signalements_graves)}</dd>
+            <dt>Signalements à traiter</dt><dd class="num">${peut('signalements') ? `<a href="#/signalements">${nb(i.signalements_a_traiter)}</a>` : nb(i.signalements_a_traiter)}</dd>
             <dt>Comptes suspendus</dt><dd class="num">${nb(i.comptes_suspendus)}</dd>
           </dl>
           <h3 class="mt-lg" style="margin-bottom:8px">Réservations par statut</h3>
@@ -515,7 +526,7 @@
     const t = tb.a_traiter;
     const items = [
       ...t.agrements.map((a) => ({ ico: 'shield', ton: 'warn', txt: `${a.prenom} ${a.nom}`, sous: `${a.pieces} pièce(s) à vérifier depuis le ${jour(a.depuis)}`, href: peut('agrements') ? '#/agrements' : null })),
-      ...t.signalements.map((s) => ({ ico: 'alert', ton: 'bad', txt: `Signalement sur ${s.evalue}`, sous: `${s.auteur} · ${esc(s.commentaire || 'sans commentaire')}`, href: peut('utilisateurs') ? `#/utilisateurs/${s.id_evalue}` : null })),
+      ...t.signalements.map((s) => ({ ico: 'flag', ton: 'bad', txt: `Signalement sur ${s.evalue}`, sous: `${esc(s.auteur)} · ${esc(s.commentaire || 'sans commentaire')}`, href: peut('signalements') ? '#/signalements' : null })),
       ...t.paiements_echoues.map((p) => ({ ico: 'card', ton: 'bad', txt: `Paiement échoué · ${p.passager}`, sous: `${fcfa(p.montant_fcfa)} · ${esc(p.motif_echec || '')}`, href: peut('paiements') ? '#/paiements' : null })),
     ];
     $('#a-traiter').innerHTML = items.length ? items.slice(0, 8).map((it) => `<div class="item"><span class="avatar" style="background:var(--${it.ton}-soft);color:var(--${it.ton})">${ico(it.ico).replace('<svg', '<svg width="16" height="16"')}</span>
@@ -941,24 +952,476 @@
     };
   }
 
-  // Journal -------------------------------------------------------------------------------------------------
-  async function pageJournal(n) {
-    const etat = E.journal ||= { page: 1 };
-    vue(`<div class="page-head"><div><h1>Journal d'audit</h1><p>Chaque action de l'équipe, avec son auteur et son motif.</p></div></div>
-      <div class="card" id="resultats">${squelette(1, 240)}</div>`);
+  // Signalements et évaluations ---------------------------------------------------------------------
+  const DECISIONS = { classe: ['', 'Classé sans suite'], avertissement: ['warn', 'Avertissement'],
+    suspension_agrement: ['bad', 'Agrément suspendu'], suspension_compte: ['bad', 'Compte suspendu'] };
+  const etoiles = (n) => `<span style="color:var(--warn);letter-spacing:1px" aria-label="${n} sur 5">${'★'.repeat(n)}<span style="opacity:.3">${'★'.repeat(5 - n)}</span></span>`;
+
+  async function pageSignalements(n) {
+    const etat = E.signalements ||= { filtre: 'a_traiter', q: '', page: 1 };
+    const onglets = [['a_traiter', 'À traiter'], ['signalements', 'Signalements'], ['mauvaises', 'Notes basses'], ['toutes', 'Toutes']];
+    vue(`<div class="page-head"><div><h1>Signalements et évaluations</h1><p>Ce que les passagers et les conducteurs disent les uns des autres.</p></div>
+      <div class="tabs" id="onglets">${onglets.map(([v, l]) => `<button data-v="${v}" class="${v === etat.filtre ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(260px,1fr);align-items:start" id="cols">
+        <div><div class="filters"><input type="search" id="q" placeholder="Auteur, personne évaluée, commentaire" value="${esc(etat.q)}"></div>
+          <div id="resultats" class="stack">${squelette(1, 200)}</div></div>
+        <div class="stack" id="stats">${squelette(1, 300)}</div>
+      </div>`);
+    if (matchMedia('(max-width: 900px)').matches) $('#cols').style.gridTemplateColumns = 'minmax(0,1fr)';
+    api('/api/admin/evaluations/statistiques').then((s) => {
+      if (!$('#stats')) return;
+      $('#stats').innerHTML = `<div class="card"><div class="card-head"><h2>Note moyenne</h2><b class="num" style="font-size:22px">${s.moyenne ? Number(s.moyenne).toLocaleString('fr-FR') : '—'}<small class="muted"> / 5</small></b></div>
+          <p class="small muted" style="margin:0 0 10px">${nb(s.nombre)} évaluation(s) · ${nb(s.signalements)} signalement(s), dont ${nb(s.a_traiter)} à traiter</p>
+          ${barresH(s.repartition.map((r) => ({ ...r, note: `${r.note} étoile${r.note > 1 ? 's' : ''}` })), 'note', 'n')}</div>
+        <div class="card"><div class="card-head"><h2>Conducteurs à surveiller</h2></div>
+          <div class="list">${s.a_surveiller.map((c) => `<div class="item"><div><a href="#/utilisateurs/${c.id_utilisateur}"><b>${esc(c.conducteur)}</b></a>
+            <div class="small muted">${c.note_moyenne ? `${Number(c.note_moyenne).toLocaleString('fr-FR')} / 5 sur ${c.nb_evaluations} avis` : 'pas encore noté'}${c.nb_signalements ? ` · ${c.nb_signalements} signalement(s)` : ''}</div></div>
+            ${pastille('agrement', c.statut_agrement)}</div>`).join('') || '<p class="muted small">Personne pour le moment.</p>'}</div></div>`;
+    }).catch(() => {});
     const charger = async () => {
       const m = ++rendu;
-      const res = await api(`/api/admin/journal?${qs({ page: etat.page })}`);
+      const res = await api(`/api/admin/evaluations?${qs({ filtre: etat.filtre, q: etat.q, page: etat.page, taille: 10 })}`);
       if (!actuel(m)) return;
       const el = $('#resultats');
+      el.innerHTML = (res.lignes.length ? res.lignes.map((e) => `<div class="card" data-id="${e.id_evaluation}">
+          <div class="row">${etoiles(e.note)}${e.signalement_grave ? '<span class="pill bad">Signalement grave</span>' : ''}
+            <span class="spacer"></span><span class="small muted">${quand(e.cree_le)}</span></div>
+          <p style="margin:10px 0 6px"><a href="#/utilisateurs/${e.id_auteur}">${esc(e.auteur)}</a> <span class="muted">à propos de</span> <a href="#/utilisateurs/${e.id_evalue}">${esc(e.evalue)}</a>
+            ${e.evalue_conducteur ? pastille('agrement', e.agrement_evalue) : ''}${e.evalue_suspendu_le ? ' <span class="pill bad">Compte suspendu</span>' : ''}</p>
+          ${e.commentaire ? `<blockquote style="margin:0;padding:10px 14px;border-radius:12px;background:var(--surface-2);color:var(--ink-2)">${esc(e.commentaire)}</blockquote>` : '<p class="small muted" style="margin:0">Sans commentaire.</p>'}
+          <div class="row mt"><span class="small muted"><a href="#/trajets/${e.id_trajet}" style="color:inherit">${esc(e.trajet)}</a> · ${jour(e.date_trajet)}</span><span class="spacer"></span>
+            ${e.traite_le ? `${pastille('decision', e.decision)}<span class="small muted">par ${esc(e.traite_par || '—')} le ${jour(e.traite_le)}</span>`
+              : e.signalement_grave ? '<button class="btn sm" data-traiter>Traiter</button>' : ''}</div>
+          ${e.note_traitement ? `<p class="small muted" style="margin:8px 0 0">${esc(e.note_traitement)}</p>` : ''}
+        </div>`).join('') : `<div class="card empty">${etat.filtre === 'a_traiter' ? 'Aucun signalement en attente.' : 'Aucune évaluation.'}</div>`)
+        + (res.total > res.taille ? pager(res) : '');
+      brancherPager(el, etat, charger);
+      $$('[data-traiter]', el).forEach((b) => {
+        b.onclick = async () => {
+          const e = res.lignes.find((x) => x.id_evaluation === Number(b.closest('[data-id]').dataset.id));
+          const ok = await demander({
+            titre: `Signalement sur ${e.evalue}`, bouton: 'Enregistrer la décision',
+            texte: `${esc(e.auteur)} : « ${esc(e.commentaire || 'sans commentaire')} »`,
+            champs: [
+              { nom: 'decision', label: 'Décision', type: 'select', valeur: 'classe', options: [
+                ['classe', 'Classer sans suite'], ['avertissement', 'Avertir la personne'],
+                ['suspension_agrement', "Suspendre l'agrément de conducteur"], ['suspension_compte', 'Suspendre le compte']] },
+              { nom: 'note', label: 'Note (gardée dans le journal, envoyée en cas d\'avertissement)', type: 'textarea', requis: true, minlength: 3 },
+              ...(e.agrement_evalue === 'suspendu' ? [{ nom: 'retablir_agrement', type: 'checkbox', valeur: true,
+                label: "Rétablir son agrément si l'on classe ou avertit (il a été suspendu automatiquement par le signalement)" }] : []),
+            ],
+            action: (v) => api(`/api/admin/signalements/${e.id_evaluation}/traitement`, { methode: 'POST',
+              corps: { decision: v.decision, note: v.note, retablir_agrement: Boolean(v.retablir_agrement) } }),
+          });
+          if (ok) { toast(`Décision enregistrée : ${DECISIONS[ok.decision][1].toLowerCase()}.`); majBadge(); pageSignalements(++rendu); }
+        };
+      });
+    };
+    $$('#onglets button').forEach((b) => { b.onclick = () => { etat.filtre = b.dataset.v; etat.page = 1; $$('#onglets button').forEach((x) => x.classList.toggle('on', x === b)); charger(); }; });
+    let attente;
+    $('#q').oninput = (ev) => { clearTimeout(attente); attente = setTimeout(() => { etat.q = ev.target.value.trim(); etat.page = 1; charger(); }, 250); };
+    await charger();
+  }
+
+  // Organisations ----------------------------------------------------------------------------------
+  const TYPES_ORG = { entreprise: 'Entreprise', etablissement_scolaire: 'Établissement scolaire', campus: 'Campus', evenement: 'Événement' };
+  const champsOrganisation = (o = {}) => [
+    { nom: 'nom', label: 'Nom', requis: true, valeur: o.nom },
+    { nom: 'type_organisation', label: 'Type', type: 'select', valeur: o.type_organisation || 'entreprise', options: Object.entries(TYPES_ORG) },
+    { nom: 'ville', label: 'Ville', valeur: o.ville || 'Douala', requis: true },
+    { nom: 'domaine_email', label: 'Domaine e-mail (les collaborateurs rejoignent automatiquement)', valeur: o.domaine_email, aide: 'entreprise.cm' },
+    { nom: 'effectif', label: 'Effectif', type: 'number', valeur: o.effectif ?? '', min: 1 },
+    { nom: 'objectif_adoption', label: "Objectif d'adoption (%)", type: 'number', valeur: o.objectif_adoption != null ? Math.round(o.objectif_adoption * 100) : 30, min: 0 },
+    { nom: 'tarif_mensuel_fcfa', label: 'Abonnement mensuel (FCFA)', type: 'number', valeur: o.tarif_mensuel_fcfa ?? 0, min: 0 },
+    { nom: 'abonnement_actif', label: 'Abonnement actif', type: 'checkbox', valeur: Boolean(o.abonnement_actif) },
+  ];
+  const corpsOrganisation = (v) => ({
+    nom: v.nom, type_organisation: v.type_organisation, ville: v.ville, domaine_email: v.domaine_email || null,
+    effectif: v.effectif ? Number(v.effectif) : null, objectif_adoption: v.objectif_adoption === '' ? null : Number(v.objectif_adoption) / 100,
+    tarif_mensuel_fcfa: Number(v.tarif_mensuel_fcfa || 0), abonnement_actif: v.abonnement_actif,
+  });
+
+  async function pageOrganisations(n, arg) {
+    if (arg) return ficheOrganisation(n, Number(arg));
+    const etat = E.organisations ||= { q: '', type: '', abonnement: '', page: 1 };
+    vue(`<div class="page-head"><div><h1>Organisations</h1><p>Entreprises, écoles et campus clients, leurs membres et leurs partenariats.</p></div>
+      <button class="btn" id="creer">Nouvelle organisation</button></div>
+      <div class="card"><div class="filters">
+        <input type="search" id="q" placeholder="Nom, ville ou domaine" value="${esc(etat.q)}">
+        <select id="type"><option value="">Tous les types</option>${Object.entries(TYPES_ORG).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
+        <select id="abonnement"><option value="">Tous les abonnements</option><option value="true">Abonnement actif</option><option value="false">Sans abonnement</option></select>
+      </div><div id="resultats">${squelette(1, 240)}</div></div>`);
+    $('#type').value = etat.type;
+    $('#abonnement').value = etat.abonnement;
+    const charger = async () => {
+      const m = ++rendu;
+      const res = await api(`/api/admin/organisations?${qs({ q: etat.q, type_organisation: etat.type, abonnement: etat.abonnement, page: etat.page })}`);
+      if (!actuel(m)) return;
+      const el = $('#resultats');
+      el.innerHTML = tableau([
+        { t: 'Organisation', f: (o) => `<div class="who"><span class="avatar">${esc(initiales(o.nom))}</span><div><b>${esc(o.nom)}</b><span>${esc(TYPES_ORG[o.type_organisation])} · ${esc(o.ville)}</span></div></div>` },
+        { t: 'Domaine', f: (o) => esc(o.domaine_email || '—') },
+        { t: 'Membres', cl: 'r', f: (o) => `<b class="num">${nb(o.membres)}</b>${o.effectif ? `<div class="small muted num">${Math.round((100 * o.membres) / o.effectif)} % de ${nb(o.effectif)}</div>` : ''}` },
+        { t: 'Partenaires', cl: 'r', f: (o) => `<span class="num">${nb(o.partenaires)}</span>` },
+        { t: 'Abonnement', f: (o) => (o.abonnement_actif ? `<span class="pill good">Actif</span><div class="small muted num">${fcfa(o.tarif_mensuel_fcfa)} / mois</div>` : '<span class="pill">Inactif</span>') },
+        { t: 'Invitations', cl: 'r', f: (o) => `<span class="num">${nb(o.invitations_en_attente)}</span> <span class="small muted">en attente</span>` },
+      ], res.lignes, { lien: (o) => `#/organisations/${o.id_organisation}`, vide: 'Aucune organisation.' }) + pager(res);
+      brancherPager(el, etat, charger);
+    };
+    let attente;
+    $('#q').oninput = (ev) => { clearTimeout(attente); attente = setTimeout(() => { etat.q = ev.target.value.trim(); etat.page = 1; charger(); }, 250); };
+    $('#type').onchange = (ev) => { etat.type = ev.target.value; etat.page = 1; charger(); };
+    $('#abonnement').onchange = (ev) => { etat.abonnement = ev.target.value; etat.page = 1; charger(); };
+    $('#creer').onclick = async () => {
+      const o = await demander({ titre: 'Nouvelle organisation', bouton: 'Créer', champs: champsOrganisation(),
+        action: (v) => api('/api/admin/organisations', { methode: 'POST', corps: corpsOrganisation(v) }) });
+      if (o) { toast(`${o.nom} créée. Code d'invitation : ${o.code_invitation}.`); location.hash = `#/organisations/${o.id_organisation}`; }
+    };
+    await charger();
+  }
+
+  async function ficheOrganisation(n, id) {
+    vue(`${retour('#/organisations', 'Organisations')}<div id="fiche" class="mt">${squelette(4)}</div>`);
+    const f = await api(`/api/admin/organisations/${id}`);
+    if (!actuel(n)) return;
+    const o = f.organisation;
+    const i = f.indicateurs;
+    const inv = f.invitations;
+    $('#fiche').innerHTML = `
+      <div class="card"><div class="row" style="gap:18px">
+        <span class="avatar lg">${esc(initiales(o.nom))}</span>
+        <div style="flex:1;min-width:200px"><h1>${esc(o.nom)}</h1>
+          <div class="row" style="margin-top:8px"><span class="pill plain">${esc(TYPES_ORG[o.type_organisation])}</span>
+            ${o.abonnement_actif ? `<span class="pill good">Abonnement actif · ${fcfa(o.tarif_mensuel_fcfa)} / mois</span>` : '<span class="pill">Sans abonnement</span>'}
+            <span class="small muted">${esc(o.ville)}${o.domaine_email ? ` · @${esc(o.domaine_email)}` : ''} · code <b class="num">${esc(o.code_invitation)}</b></span></div></div>
+        <button class="btn ghost" id="modifier">Modifier</button></div></div>
+      <div class="grid kpis mt">
+        ${kpi('Membres', nb(i.membres), o.effectif ? `sur ${nb(o.effectif)} personnes` : 'effectif non renseigné', 'users')}
+        ${kpi('Adoption', i.adoption != null ? `${Math.round(i.adoption * 100)} %` : '—', `objectif ${Math.round(o.objectif_adoption * 100)} %`, 'chart', i.adoption != null && i.adoption < o.objectif_adoption ? 'warn' : '')}
+        ${kpi('Trajets partagés', nb(i.trajets_partages), 'réservations des membres', 'route')}
+        ${kpi('Dépense des membres', montant(i.depense_membres_fcfa), i.detour_moyen_km ? `détour moyen ${Number(i.detour_moyen_km).toLocaleString('fr-FR')} km` : '', 'money')}
+      </div>
+      <div class="grid cols-2 mt">
+        <div class="card"><div class="card-head"><h2>Membres</h2><button class="btn soft sm" id="ajouter-membre">Ajouter</button></div>${tableau([
+          { t: 'Membre', f: (m) => `<a href="#/utilisateurs/${m.id_utilisateur}">${esc(m.nom)}</a><div class="small muted">${esc(m.email || m.telephone)}${m.service ? ` · ${esc(m.service)}` : ''}</div>` },
+          { t: 'Rôle', f: (m) => `<span class="pill ${m.role === 'administrateur' ? 'info' : 'plain'}">${m.role === 'administrateur' ? 'Administrateur' : 'Membre'}</span>` },
+          { t: '', cl: 'r', f: (m) => `<button class="btn ghost sm" data-retirer-membre="${m.id_utilisateur}">Retirer</button>` },
+        ], f.membres, { vide: 'Aucun membre.' })}</div>
+        <div class="stack">
+          <div class="card"><div class="card-head"><h2>Partenaires</h2>${f.autres_organisations.length ? '<button class="btn soft sm" id="ajouter-partenaire">Ajouter</button>' : ''}</div>
+            <p class="small muted" style="margin:0 0 6px">Les membres des organisations partenaires voyagent ensemble (cercle « partenaires »).</p>
+            <div class="list">${f.partenaires.map((p) => `<div class="item"><div><a href="#/organisations/${p.id_organisation}"><b>${esc(p.nom)}</b></a><div class="small muted">depuis le ${jour(p.depuis_le)}</div></div>
+              <button class="btn ghost sm" data-retirer-partenaire="${p.id_organisation}">Retirer</button></div>`).join('') || '<p class="muted small">Aucun partenaire.</p>'}</div></div>
+          <div class="card"><div class="card-head"><h2>Invitations</h2></div>
+            <div class="row" style="margin-bottom:8px"><span class="pill warn">${nb(inv.envoyee || 0)} en attente</span><span class="pill good">${nb(inv.acceptee || 0)} acceptée(s)</span><span class="pill">${nb((inv.expiree || 0) + (inv.annulee || 0))} expirée(s) ou annulée(s)</span></div>
+            <div class="list">${f.dernieres_invitations.map((v) => `<div class="item"><div><b class="small">${esc(v.email)}</b><div class="small muted">envoyée le ${jour(v.envoyee_le)}${v.relances ? ` · ${v.relances} relance(s)` : ''}</div></div>
+              <span class="pill ${v.statut === 'acceptee' ? 'good' : v.statut === 'envoyee' ? 'warn' : ''}">${esc({ envoyee: 'En attente', acceptee: 'Acceptée', expiree: 'Expirée', annulee: 'Annulée' }[v.statut])}</span></div>`).join('') || '<p class="muted small">Aucune invitation envoyée.</p>'}</div></div>
+        </div>
+      </div>`;
+    const recharger = () => ficheOrganisation(++rendu, id);
+    $('#modifier').onclick = async () => {
+      const ok = await demander({ titre: `Modifier ${o.nom}`, bouton: 'Enregistrer', champs: champsOrganisation(o),
+        action: (v) => api(`/api/admin/organisations/${id}`, { methode: 'PATCH', corps: corpsOrganisation(v) }) });
+      if (ok) { toast('Organisation mise à jour.'); recharger(); }
+    };
+    $('#ajouter-membre').onclick = async () => {
+      const ok = await demander({ titre: `Ajouter un membre à ${o.nom}`, bouton: 'Ajouter',
+        champs: [{ nom: 'identifiant', label: 'E-mail ou téléphone du compte', requis: true },
+          { nom: 'role', label: 'Rôle', type: 'select', valeur: 'membre', options: [['membre', 'Membre'], ['administrateur', "Administrateur de l'organisation"]] }],
+        action: (v) => api(`/api/admin/organisations/${id}/membres`, { methode: 'POST', corps: v }) });
+      if (ok) { toast(`${ok.nom} ajouté·e.`); recharger(); }
+    };
+    $('#ajouter-partenaire')?.addEventListener('click', async () => {
+      const ok = await demander({ titre: 'Nouveau partenaire', bouton: 'Ajouter',
+        champs: [{ nom: 'id_organisation', label: 'Organisation', type: 'select', valeur: String(f.autres_organisations[0].id_organisation),
+          options: f.autres_organisations.map((x) => [String(x.id_organisation), x.nom]) }],
+        action: (v) => api(`/api/admin/organisations/${id}/partenaires`, { methode: 'POST', corps: { id_organisation: Number(v.id_organisation) } }) });
+      if (ok) { toast('Partenariat ajouté.'); recharger(); }
+    });
+    $$('[data-retirer-membre]').forEach((b) => {
+      b.onclick = async () => {
+        const m = f.membres.find((x) => x.id_utilisateur === Number(b.dataset.retirerMembre));
+        const ok = await demander({ titre: `Retirer ${m.nom} de ${o.nom} ?`, bouton: 'Retirer', danger: true,
+          action: () => api(`/api/admin/organisations/${id}/membres/${m.id_utilisateur}`, { methode: 'DELETE' }) });
+        if (ok) { toast('Membre retiré.'); recharger(); }
+      };
+    });
+    $$('[data-retirer-partenaire]').forEach((b) => {
+      b.onclick = async () => {
+        const p = f.partenaires.find((x) => x.id_organisation === Number(b.dataset.retirerPartenaire));
+        const ok = await demander({ titre: `Mettre fin au partenariat avec ${p.nom} ?`, bouton: 'Mettre fin', danger: true,
+          action: () => api(`/api/admin/organisations/${id}/partenaires/${p.id_organisation}`, { methode: 'DELETE' }) });
+        if (ok) { toast('Partenariat terminé.'); recharger(); }
+      };
+    });
+  }
+
+  // Communication ------------------------------------------------------------------------------------
+  const CIBLES = { tous: 'Tous les utilisateurs', conducteurs: 'Conducteurs agréés', passagers: 'Passagers', organisation: 'Une organisation', utilisateur: 'Une personne' };
+  const CANAUX = { email: ['good', 'E-mail'], sms: ['info', 'SMS'], console: ['warn', 'Console (non délivré)'] };
+  const COURRIELS = { envoye: ['good', 'Envoyé'], simule: ['', 'Simulé'], echec: ['bad', 'Échec'] };
+
+  async function pageCommunication(n) {
+    const etat = E.communication ||= { vue: 'envoyer', page: 1, statut: '', q: '' };
+    const onglets = [['envoyer', 'Envoyer un message'], ['historique', 'Messages envoyés'], ['courriels', 'E-mails'], ['codes', 'Codes de vérification']];
+    vue(`<div class="page-head"><div><h1>Communication</h1><p>Prévenir les utilisateurs, et vérifier que les e-mails et les codes arrivent.</p></div>
+      <div class="tabs" id="onglets">${onglets.map(([v, l]) => `<button data-v="${v}">${l}</button>`).join('')}</div></div>
+      <div id="contenu"></div>`);
+    const afficher = () => {
+      $$('#onglets button').forEach((b) => b.classList.toggle('on', b.dataset.v === etat.vue));
+      ({ envoyer: ongletEnvoyer, historique: ongletHistorique, courriels: ongletCourriels, codes: ongletCodes })[etat.vue](etat);
+    };
+    $$('#onglets button').forEach((b) => { b.onclick = () => { etat.vue = b.dataset.v; etat.page = 1; afficher(); }; });
+    afficher();
+  }
+
+  async function ongletEnvoyer() {
+    const c = $('#contenu');
+    c.innerHTML = `<div class="grid" style="grid-template-columns:minmax(0,3fr) minmax(240px,2fr);align-items:start" id="cols">
+      <form class="card" id="annonce" novalidate>
+        <label class="field"><span>Destinataires</span><select name="cible">${Object.entries(CIBLES).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+        <label class="field" id="ch-org" hidden><span>Organisation</span><select name="id_organisation"></select></label>
+        <div class="field" id="ch-user" hidden><label class="field" style="margin:0"><span>Personne</span><input type="search" id="u-q" placeholder="Nom, e-mail ou téléphone"></label>
+          <select name="id_utilisateur" style="margin-top:8px"></select></div>
+        <label class="field"><span>Message <span class="muted" id="compteur">0 / 400</span></span><textarea name="message" maxlength="400" required placeholder="Ex. : nouvelle ligne Logpom → Bonanjo dès lundi, 6 h 45."></textarea></label>
+        <label class="check"><input type="checkbox" name="par_email"><span>Envoyer aussi par e-mail (à ceux qui ont une adresse)</span></label>
+        <label class="field" id="ch-objet" hidden><span>Objet de l'e-mail</span><input name="objet" value="Message de l'équipe MboaRide"></label>
+        <div class="row"><span class="muted small" id="audience">…</span><span class="spacer"></span><button class="btn" type="submit">Envoyer</button></div>
+      </form>
+      <div class="card flat"><h3>Comment ça arrive</h3><p class="small muted" style="margin:6px 0 0">Le message apparaît dans la cloche de l'application et en notification du téléphone. Avec l'e-mail, il part aussi par Gmail, avec le compte des codes de vérification (SMTP_USER et SMTP_PASS dans .env.local). Sans ce compte, l'e-mail est seulement enregistré (« simulé ») dans l'onglet E-mails.</p></div>
+    </div>`;
+    if (matchMedia('(max-width: 900px)').matches) $('#cols').style.gridTemplateColumns = 'minmax(0,1fr)';
+    const f = $('#annonce');
+    const orgs = await api('/api/admin/organisations?taille=100').catch(() => ({ lignes: [] }));
+    f.id_organisation.innerHTML = orgs.lignes.map((o) => `<option value="${o.id_organisation}">${esc(o.nom)}</option>`).join('');
+    const corps = () => ({ cible: f.cible.value, id_organisation: f.cible.value === 'organisation' ? Number(f.id_organisation.value) || null : null,
+      id_utilisateur: f.cible.value === 'utilisateur' ? Number(f.id_utilisateur.value) || null : null,
+      message: f.message.value.trim(), par_email: f.par_email.checked, objet: f.objet.value.trim() || "Message de l'équipe MboaRide" });
+    let audience = null;
+    const majAudience = async () => {
+      const b = corps();
+      $('#ch-org').hidden = b.cible !== 'organisation';
+      $('#ch-user').hidden = b.cible !== 'utilisateur';
+      $('#ch-objet').hidden = !b.par_email;
+      try {
+        audience = await api(`/api/admin/communication/audience?${qs({ cible: b.cible, id_organisation: b.id_organisation, id_utilisateur: b.id_utilisateur })}`);
+        $('#audience').innerHTML = `<b>${nb(audience.destinataires)}</b> destinataire(s)${b.par_email ? `, dont ${nb(audience.avec_email)} avec e-mail` : ''}`;
+      } catch { $('#audience').textContent = ''; }
+    };
+    let attente;
+    $('#u-q').oninput = (ev) => {
+      clearTimeout(attente);
+      attente = setTimeout(async () => {
+        const r = await api(`/api/admin/utilisateurs?${qs({ q: ev.target.value.trim(), taille: 15 })}`);
+        f.id_utilisateur.innerHTML = r.lignes.map((u) => `<option value="${u.id_utilisateur}">${esc(u.prenom)} ${esc(u.nom)} · ${esc(u.email || u.telephone)}</option>`).join('');
+        majAudience();
+      }, 250);
+    };
+    f.message.oninput = () => { $('#compteur').textContent = `${f.message.value.length} / 400`; };
+    ['cible', 'id_organisation', 'id_utilisateur', 'par_email'].forEach((k) => { f[k].onchange = majAudience; });
+    f.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const b = corps();
+      if (b.message.length < 5) { toast('Écrivez un message (5 caractères au moins).', true); return; }
+      const ok = await demander({ titre: `Envoyer à ${nb(audience?.destinataires || 0)} personne(s) ?`, bouton: 'Envoyer',
+        texte: `« ${esc(b.message)} »`, action: () => api('/api/admin/communication/annonces', { methode: 'POST', corps: b }) });
+      if (!ok) return;
+      const e = ok.courriels;
+      toast(`Message envoyé à ${nb(ok.destinataires)} personne(s)${b.par_email ? ` ; e-mails : ${e.envoye} envoyé(s), ${e.simule} simulé(s), ${e.echec} échec(s)` : ''}.`);
+      f.message.value = '';
+      $('#compteur').textContent = '0 / 400';
+    };
+    majAudience();
+  }
+
+  async function ongletHistorique(etat) {
+    const c = $('#contenu');
+    c.innerHTML = `<div class="card" id="resultats">${squelette(1, 200)}</div>`;
+    const charger = async () => {
+      const res = await api(`/api/admin/communication/annonces?${qs({ page: etat.page })}`);
+      const el = $('#resultats');
+      if (!el) return;
+      el.innerHTML = tableau([
+        { t: 'Date', f: (a) => `<span class="num">${quand(a.cree_le)}</span><div class="small muted">par ${esc(a.par || '—')}</div>` },
+        { t: 'Destinataires', f: (a) => `${esc(CIBLES[a.cible])}${a.organisation ? ` : ${esc(a.organisation)}` : ''}${a.utilisateur ? ` : ${esc(a.utilisateur)}` : ''}<div class="small muted num">${nb(a.destinataires)} personne(s)${a.par_email ? ` · ${nb(a.courriels)} e-mail(s)` : ''}</div>` },
+        { t: 'Message', f: (a) => esc(a.message) },
+      ], res.lignes, { vide: 'Aucun message envoyé pour le moment.' }) + pager(res);
+      brancherPager(el, etat, charger);
+    };
+    await charger();
+  }
+
+  async function ongletCourriels(etat) {
+    const c = $('#contenu');
+    c.innerHTML = `<div class="card"><div class="filters"><input type="search" id="q" placeholder="Destinataire ou objet" value="${esc(etat.q)}">
+      <select id="statut"><option value="">Tous les statuts</option>${Object.entries(COURRIELS).map(([v, [, l]]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
+      <div id="resultats">${squelette(1, 200)}</div></div>`;
+    $('#statut').value = etat.statut;
+    const charger = async () => {
+      const res = await api(`/api/admin/communication/courriels?${qs({ statut: etat.statut, q: etat.q, page: etat.page })}`);
+      const el = $('#resultats');
+      if (!el) return;
+      el.innerHTML = tableau([
+        { t: 'Date', f: (m) => `<span class="num">${quand(m.cree_le)}</span>` },
+        { t: 'Destinataire', f: (m) => esc(m.destinataire) },
+        { t: 'Objet', f: (m) => esc(m.sujet) },
+        { t: 'Statut', f: (m) => `<span class="pill ${COURRIELS[m.statut][0]}">${COURRIELS[m.statut][1]}</span>${m.erreur ? `<div class="small" style="color:var(--bad)">${esc(m.erreur)}</div>` : ''}` },
+      ], res.lignes, { vide: 'Aucun e-mail.' }) + pager(res);
+      brancherPager(el, etat, charger);
+    };
+    let attente;
+    $('#q').oninput = (ev) => { clearTimeout(attente); attente = setTimeout(() => { etat.q = ev.target.value.trim(); etat.page = 1; charger(); }, 250); };
+    $('#statut').onchange = (ev) => { etat.statut = ev.target.value; etat.page = 1; charger(); };
+    await charger();
+  }
+
+  async function ongletCodes(etat) {
+    const c = $('#contenu');
+    c.innerHTML = squelette(4);
+    const charger = async () => {
+      const res = await api(`/api/admin/communication/codes?${qs({ q: etat.q, page: etat.page })}`);
+      if (!res.disponible) {
+        c.innerHTML = '<div class="card empty">Aucun code envoyé pour le moment : l\'API Node n\'a encore rien tracé dans cette base.</div>';
+        return;
+      }
+      const r = res.resume;
+      c.innerHTML = `${r.dernier_canal === 'console' ? `<div class="card" style="background:var(--warn-soft);border:0;margin-bottom:16px"><b style="color:var(--warn)">Le dernier code n'est pas parti par e-mail.</b>
+          <p class="small" style="margin:4px 0 0;color:var(--ink-2)">Il est resté dans la fenêtre « API Node ». Renseignez SMTP_USER et SMTP_PASS (mot de passe d'application Gmail) dans .env.local, puis relancez scripts\\lancer_tout.ps1.</p></div>` : ''}
+        <div class="grid kpis">${kpi('Codes envoyés', nb(r.total), `${nb(r.dernieres_24h)} sur les dernières 24 h`, 'lock')}
+          ${kpi('Par e-mail', nb(r.email), 'délivrés par Gmail', 'money')}${kpi('Par SMS', nb(r.sms), 'passerelle SMS', 'card')}
+          ${kpi('Non délivrés', nb(r.console), 'restés dans la console', 'alert', r.console ? 'warn' : '')}</div>
+        <div class="card mt"><div class="filters"><input type="search" id="q" placeholder="Nom, e-mail ou téléphone" value="${esc(etat.q)}"></div><div id="resultats"></div></div>`;
+      $('#resultats').innerHTML = tableau([
+        { t: 'Envoyé', f: (d) => `<span class="num">${quand(d.envoye_le)}</span>` },
+        { t: 'Compte', f: (d) => `${d.id_utilisateur ? `<a href="#/utilisateurs/${d.id_utilisateur}">${esc(d.nom)}</a>` : esc(d.nom)}<div class="small muted">${d.verifie ? 'compte vérifié' : 'pas encore vérifié'}</div>` },
+        { t: 'Canal', f: (d) => `<span class="pill ${(CANAUX[d.canal] || [''])[0]}">${esc((CANAUX[d.canal] || ['', d.canal])[1])}</span>` },
+        { t: 'Destination', f: (d) => esc(d.destination) },
+        { t: 'Validité', cl: 'r', f: (d) => `<span class="num">${d.minutes} min</span>` },
+      ], res.lignes, { vide: 'Aucun code.' }) + pager(res);
+      brancherPager($('#resultats'), etat, charger);
+      let attente;
+      $('#q').oninput = (ev) => { clearTimeout(attente); attente = setTimeout(() => { etat.q = ev.target.value.trim(); etat.page = 1; charger(); }, 300); };
+    };
+    await charger();
+  }
+
+  // Paramètres -----------------------------------------------------------------------------------------
+  async function pageParametres(n) {
+    vue(`<div class="page-head"><div><h1>Paramètres</h1><p>Tarifs et délais de la plateforme. Les changements s'appliquent en quelques secondes, sans relancer.</p></div></div>
+      <div id="contenu">${squelette(2, 260)}</div>`);
+    const liste = await api('/api/admin/parametres');
+    if (!actuel(n)) return;
+    const peutModifier = moi.role === 'super_admin';
+    const groupes = [...new Set(liste.map((p) => p.groupe))];
+    $('#contenu').innerHTML = `<div class="grid" style="grid-template-columns:minmax(0,3fr) minmax(280px,2fr);align-items:start" id="cols">
+      <form class="stack" id="reglages" novalidate>
+        ${groupes.map((g) => `<div class="card"><div class="card-head"><h2>${esc(g)}</h2></div>
+          ${liste.filter((p) => p.groupe === g).map((p) => `<label class="field"><span>${esc(p.libelle)}</span>
+            <div class="row" style="flex-wrap:nowrap"><input type="number" name="${p.cle}" value="${p.valeur}" min="${p.min}" max="${p.max}" step="1" ${peutModifier ? '' : 'disabled'} style="max-width:160px">
+            <span class="muted small">${esc(p.unite)}</span></div>
+            <span class="small muted" style="display:block;font-weight:400;margin-top:4px">${esc(p.aide)} Entre ${nb(p.min)} et ${nb(p.max)}.${p.maj_par ? ` Modifié le ${jour(p.maj_le)} par ${esc(p.maj_par)}.` : ''}</span></label>`).join('')}</div>`).join('')}
+        <div class="row">${peutModifier ? '<span class="muted small" id="changes">Aucune modification.</span><span class="spacer"></span><button class="btn ghost" type="button" id="annuler">Annuler</button><button class="btn" type="submit" id="enregistrer" disabled>Enregistrer</button>'
+          : '<span class="muted small">Seul un super administrateur peut modifier ces réglages.</span>'}</div>
+      </form>
+      <div class="card" style="position:sticky;top:20px"><div class="card-head"><h2>Simulateur de prix</h2></div>
+        <p class="small muted" style="margin:0 0 12px">Un trajet type, avec les réglages actuels et ceux du formulaire.</p>
+        <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <label class="field"><span>Distance (km)</span><input type="number" id="s-km" value="10" min="1" max="500"></label>
+          <label class="field"><span>L / 100 km</span><input type="number" id="s-conso" value="7.5" step="0.5" min="1" max="30"></label>
+          <label class="field"><span>Passagers</span><input type="number" id="s-pass" value="2" min="1" max="8"></label></div>
+        <div id="simulation"></div></div>
+    </div>`;
+    if (matchMedia('(max-width: 900px)').matches) $('#cols').style.gridTemplateColumns = 'minmax(0,1fr)';
+    const form = $('#reglages');
+    const proposes = () => Object.fromEntries(liste.map((p) => [p.cle, Number(form.elements[p.cle].value)]));
+    const changes = () => Object.fromEntries(Object.entries(proposes()).filter(([k, v]) => v !== liste.find((p) => p.cle === k).valeur));
+    let attente;
+    const simuler = () => {
+      clearTimeout(attente);
+      attente = setTimeout(async () => {
+        const ch = changes();
+        if (peutModifier) {
+          const k = Object.keys(ch).length;
+          $('#changes').textContent = k ? `${k} réglage(s) modifié(s), pas encore enregistré(s).` : 'Aucune modification.';
+          $('#enregistrer').disabled = !k;
+        }
+        try {
+          const s = await api('/api/admin/parametres/simulation', { methode: 'POST', corps: { valeurs: ch,
+            distance_km: Number($('#s-km').value) || 10, conso_l_100km: Number($('#s-conso').value) || 7.5, passagers: Number($('#s-pass').value) || 2 } });
+          const ligne = (l, k) => {
+            const a = s.actuel[k], b = s.propose[k];
+            return `<tr><td>${l}</td><td class="r num">${fcfa(a)}</td><td class="r num"><b>${fcfa(b)}</b>${b !== a ? `<div class="small" style="color:${b > a ? 'var(--warn)' : 'var(--good)'}">${b > a ? '+' : ''}${nb(b - a)}</div>` : ''}</td></tr>`;
+          };
+          $('#simulation').innerHTML = `<div class="table-wrap"><table><thead><tr><th></th><th class="r">Actuel</th><th class="r">Proposé</th></tr></thead><tbody>
+            ${ligne('Prix payé par le passager', 'prix_fcfa')}${ligne('Part du conducteur', 'part_conducteur_fcfa')}${ligne('Commission MboaRide', 'commission_fcfa')}${ligne('Carburant du trajet', 'carburant_fcfa')}</tbody></table></div>`;
+        } catch (e) { $('#simulation').innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+      }, 200);
+    };
+    form.addEventListener('input', simuler);
+    ['s-km', 's-conso', 's-pass'].forEach((id) => { $(`#${id}`).oninput = simuler; });
+    $('#annuler')?.addEventListener('click', () => { liste.forEach((p) => { form.elements[p.cle].value = p.valeur; }); simuler(); });
+    form.onsubmit = async (ev) => {
+      ev.preventDefault();
+      if (!form.reportValidity()) return;
+      const ch = changes();
+      const libelles = Object.entries(ch).map(([k, v]) => { const p = liste.find((x) => x.cle === k); return `${esc(p.libelle)} : ${nb(p.valeur)} → <b>${nb(v)}</b> ${esc(p.unite)}`; });
+      const ok = await demander({ titre: 'Enregistrer ces réglages ?', bouton: 'Enregistrer', texte: libelles.join('<br>'),
+        action: () => api('/api/admin/parametres', { methode: 'PUT', corps: { valeurs: ch } }) });
+      if (ok) { toast('Réglages enregistrés : ils s\'appliquent aux prochains prix.'); pageParametres(++rendu); }
+    };
+    simuler();
+  }
+
+  // Journal -------------------------------------------------------------------------------------------------
+  async function pageJournal(n) {
+    const etat = E.journal ||= { page: 1, q: '', action: '', id_admin: '', du: '', au: '' };
+    vue(`<div class="page-head"><div><h1>Journal d'audit</h1><p>Chaque action de l'équipe, avec son auteur et son motif.</p></div>
+      <button class="btn soft" id="export">${ico('download').replace('<svg', '<svg width="16" height="16"')}Exporter en CSV</button></div>
+      <div class="card"><div class="filters">
+        <input type="search" id="q" placeholder="Rechercher dans le détail" value="${esc(etat.q)}">
+        <select id="action"><option value="">Toutes les actions</option></select>
+        <select id="id_admin"><option value="">Tous les auteurs</option></select>
+        <input type="date" id="du" value="${esc(etat.du)}" aria-label="Du"><input type="date" id="au" value="${esc(etat.au)}" aria-label="Au">
+      </div><div id="resultats">${squelette(1, 240)}</div></div>`);
+    api('/api/admin/journal/filtres').then((f) => {
+      if (!$('#action')) return;
+      $('#action').innerHTML += f.actions.map((a) => `<option value="${esc(a)}">${esc(a.replace(/_/g, ' '))}</option>`).join('');
+      $('#id_admin').innerHTML += f.auteurs.map((a) => `<option value="${a.id_utilisateur}">${esc(a.nom)}</option>`).join('');
+      $('#action').value = etat.action;
+      $('#id_admin').value = etat.id_admin;
+    }).catch(() => {});
+    const filtres = () => ({ q: etat.q, action: etat.action, id_admin: etat.id_admin, du: etat.du, au: etat.au });
+    const charger = async () => {
+      const m = ++rendu;
+      const res = await api(`/api/admin/journal?${qs({ ...filtres(), page: etat.page })}`);
+      if (!actuel(m)) return;
+      const el = $('#resultats');
+      const lien = (j) => (j.cible_type === 'utilisateur' && j.cible_id ? `#/utilisateurs/${j.cible_id}`
+        : j.cible_type === 'trajet' ? `#/trajets/${j.cible_id}` : j.cible_type === 'organisation' && j.cible_id ? `#/organisations/${j.cible_id}`
+          : j.cible_type === 'parametre' ? '#/parametres' : null);
       el.innerHTML = tableau([
         { t: 'Quand', f: (j) => `<span class="num">${quand(j.cree_le)}</span>` },
         { t: 'Par', f: (j) => esc(j.par || 'ligne de commande') },
         { t: 'Action', f: (j) => `<span class="pill plain">${esc(j.action.replace(/_/g, ' '))}</span>` },
-        { t: 'Détail', f: (j) => (j.cible_type === 'utilisateur' && j.cible_id ? `<a href="#/utilisateurs/${esc(j.cible_id)}">${esc(j.resume)}</a>`
-          : j.cible_type === 'trajet' ? `<a href="#/trajets/${esc(j.cible_id)}">${esc(j.resume)}</a>` : esc(j.resume)) },
-      ], res.lignes, { vide: 'Aucune action enregistrée pour le moment.' }) + pager(res);
+        { t: 'Détail', f: (j) => (lien(j) && peut(lien(j).split('/')[1]) ? `<a href="${lien(j)}">${esc(j.resume)}</a>` : esc(j.resume)) },
+      ], res.lignes, { vide: 'Aucune action ne correspond.' }) + pager(res);
       brancherPager(el, etat, charger);
+    };
+    let attente;
+    $('#q').oninput = (ev) => { clearTimeout(attente); attente = setTimeout(() => { etat.q = ev.target.value.trim(); etat.page = 1; charger(); }, 250); };
+    ['action', 'id_admin', 'du', 'au'].forEach((k) => { $(`#${k}`).onchange = (ev) => { etat[k] = ev.target.value; etat.page = 1; charger(); }; });
+    $('#export').onclick = async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      try {
+        const r = await api(`/api/admin/export/journal.csv?${qs(filtres())}`, { brut: true });
+        const url = URL.createObjectURL(await r.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `journal-${iso(new Date())}.csv`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
     };
     await charger();
   }
@@ -966,6 +1429,8 @@
   const PAGES = {
     tableau: pageTableau, utilisateurs: pageUtilisateurs, agrements: pageAgrements, trajets: pageTrajets,
     paiements: pagePaiements, finances: pageFinances, equipe: pageEquipe, journal: pageJournal,
+    signalements: pageSignalements, organisations: pageOrganisations, communication: pageCommunication,
+    parametres: pageParametres,
   };
 
   if (session) demarrer(); else pageConnexion();

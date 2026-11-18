@@ -53,6 +53,17 @@ export async function migrate(db: Knex): Promise<void> {
       t.boolean("consumed").notNullable().defaultTo(false);
     });
   }
+  // Trace de chaque code envoyé (canal, destination masquée), lue par la console d'administration.
+  if (!(await db.schema.hasTable("otp_deliveries"))) {
+    await db.schema.createTable("otp_deliveries", (t) => {
+      t.increments("id");
+      t.integer("user_id").notNullable().references("users.id").onDelete("CASCADE").index();
+      t.string("channel", 10).notNullable();
+      t.string("destination", 80).notNullable();
+      t.integer("minutes").notNullable();
+      t.bigInteger("created_at").notNullable();
+    });
+  }
   if (!(await db.schema.hasTable("refresh_tokens"))) {
     await db.schema.createTable("refresh_tokens", (t) => {
       t.increments("id");

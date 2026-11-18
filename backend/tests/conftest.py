@@ -23,11 +23,14 @@ from app.main import app  # noqa: E402
 
 SCRIPTS = ["01_schema.sql", "02_donnees_exemple.sql", "04_sprint2.sql", "05_sprint3.sql",
            "06_sprint3_eleves.sql", "07_pont_node.sql", "08_parcours_complet.sql",
-           "09_comptes_mobile_money.sql", "10_portefeuille_fin_de_course.sql", "11_administration.sql"]
+           "09_comptes_mobile_money.sql", "10_portefeuille_fin_de_course.sql", "11_administration.sql",
+           "12_administration_suite.sql"]
 
 
 @pytest.fixture()
 def base():
+    from app import parametres
+    parametres.invalider()          # chaque test repart des réglages par défaut
     with psycopg.connect(PG, autocommit=True) as admin:
         admin.execute(f"DROP DATABASE IF EXISTS {BASE_TEST} WITH (FORCE)")
         admin.execute(f"CREATE DATABASE {BASE_TEST}")

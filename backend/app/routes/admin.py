@@ -2,8 +2,9 @@
 
 Rôles (table `administrateur`) :
 
-- `super_admin` : tout, y compris nommer ou retirer d'autres administrateurs ;
-- `support`     : utilisateurs, agréments, trajets et courses ;
+- `super_admin` : tout, y compris les paramètres (tarifs, délais) et l'équipe ;
+- `support`     : utilisateurs, agréments, trajets et courses, signalements, organisations,
+                  communication ;
 - `finance`     : paiements, remboursements, versements, commissions, portefeuilles.
 
 Le tableau de bord et le journal sont ouverts aux trois rôles. Chaque action qui modifie
@@ -19,6 +20,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import secrets
 from datetime import date, timedelta
 from typing import Literal
 
@@ -28,10 +30,10 @@ from fastapi.responses import Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, model_validator
 
-from .. import config
+from .. import config, parametres
 from .. import portefeuille as pf
 from ..db import get_conn
-from ..notifications import notifier
+from ..notifications import envoyer_courriel, notifier
 from ..securite import utilisateur_courant
 from .conducteur import PIECES, retirer_trajet_entier
 
@@ -39,9 +41,10 @@ router = APIRouter(prefix="/api/admin", tags=["Administration de la plateforme"]
 
 ROLES = ("super_admin", "support", "finance")
 MODULES = {
-    "super_admin": ["tableau", "utilisateurs", "agrements", "trajets", "paiements", "finances",
-                    "administrateurs", "journal"],
-    "support": ["tableau", "utilisateurs", "agrements", "trajets", "journal"],
+    "super_admin": ["tableau", "utilisateurs", "agrements", "trajets", "signalements", "organisations",
+                    "paiements", "finances", "communication", "parametres", "administrateurs", "journal"],
+    "support": ["tableau", "utilisateurs", "agrements", "trajets", "signalements", "organisations",
+                "communication", "journal"],
     "finance": ["tableau", "paiements", "finances", "journal"],
 }
 
@@ -144,6 +147,7 @@ def tableau_de_bord(jours: int = Query(30, ge=1, le=365), a: dict = Depends(admi
              (SELECT count(*) FROM paiement WHERE statut = 'echoue' AND initie_le >= %(depuis)s) AS paiements_echoues,
              (SELECT coalesce(sum(solde_fcfa), 0) FROM portefeuille) AS soldes_portefeuilles_fcfa,
              (SELECT count(*) FROM evaluation WHERE signalement_grave AND cree_le >= %(depuis)s) AS signalements_graves,
+             (SELECT count(*) FROM evaluation WHERE signalement_grave AND traite_le IS NULL) AS signalements_a_traiter,
              (SELECT round(avg(note), 2) FROM evaluation WHERE cree_le >= %(depuis)s) AS note_moyenne""", p).fetchone()
     serie = conn.execute(
         """SELECT j::date AS jour,
@@ -172,7 +176,7 @@ def tableau_de_bord(jours: int = Query(30, ge=1, le=365), a: dict = Depends(admi
                       au.prenom || ' ' || au.nom AS auteur
                  FROM evaluation e JOIN utilisateur ev ON ev.id_utilisateur = e.id_evalue
                  JOIN utilisateur au ON au.id_utilisateur = e.id_auteur
-                WHERE e.signalement_grave ORDER BY e.cree_le DESC LIMIT 5""").fetchall(),
+                WHERE e.signalement_grave AND e.traite_le IS NULL ORDER BY e.cree_le LIMIT 5""").fetchall(),
         "paiements_echoues": conn.execute(
             """SELECT p.id_paiement, p.reference_transaction, p.montant_fcfa, p.motif_echec, p.initie_le,
                       u.prenom || ' ' || u.nom AS passager
@@ -283,21 +287,31 @@ def suspendre(uid: int, body: Suspension, a: dict = SUPPORT, conn: psycopg.Conne
         raise HTTPException(409, "Vous ne pouvez pas suspendre votre propre compte")
     if u["suspendu_le"] is not None:
         raise HTTPException(409, "Ce compte est déjà suspendu")
+    return {"id_utilisateur": uid, "suspendu": True, **_suspendre_compte(conn, a, u, body.motif, body.retirer_trajets)}
+
+
+def _retirer_trajets_de(conn, uid: int) -> tuple[int, int]:
+    """Retire les trajets en ligne d'un conducteur ; renvoie (trajets, réservations annulées)."""
+    retires = passagers = 0
+    for t in conn.execute("SELECT id_trajet FROM trajet WHERE id_conducteur = %s AND statut = 'actif'",
+                          (uid,)).fetchall():
+        passagers += retirer_trajet_entier(conn, t["id_trajet"], "conducteur indisponible")
+        retires += 1
+    return retires, passagers
+
+
+def _suspendre_compte(conn, a: dict, u: dict, motif: str, retirer_trajets: bool) -> dict:
+    uid = u["id_utilisateur"]
     cible_admin = conn.execute("SELECT 1 FROM administrateur WHERE id_utilisateur = %s AND actif", (uid,)).fetchone()
     if cible_admin and a["role_admin"] != "super_admin":
         raise HTTPException(403, "Seul un super administrateur peut suspendre un membre de l'équipe")
     conn.execute("UPDATE utilisateur SET suspendu_le = now(), motif_suspension = %s WHERE id_utilisateur = %s",
-                 (body.motif, uid))
-    retires, passagers = 0, 0
-    if body.retirer_trajets:
-        for t in conn.execute("SELECT id_trajet FROM trajet WHERE id_conducteur = %s AND statut = 'actif'",
-                              (uid,)).fetchall():
-            passagers += retirer_trajet_entier(conn, t["id_trajet"], "conducteur indisponible")
-            retires += 1
-    notifier(conn, uid, "administration", f"Votre compte MboaRide est suspendu : {body.motif}")
-    journaliser(conn, a, "suspension", "utilisateur", uid, f"Compte de {u['prenom']} {u['nom']} suspendu : {body.motif}",
+                 (motif, uid))
+    retires, passagers = _retirer_trajets_de(conn, uid) if retirer_trajets else (0, 0)
+    notifier(conn, uid, "administration", f"Votre compte MboaRide est suspendu : {motif}")
+    journaliser(conn, a, "suspension", "utilisateur", uid, f"Compte de {u['prenom']} {u['nom']} suspendu : {motif}",
                 trajets_retires=retires, reservations_annulees=passagers)
-    return {"id_utilisateur": uid, "suspendu": True, "trajets_retires": retires, "reservations_annulees": passagers}
+    return {"trajets_retires": retires, "reservations_annulees": passagers}
 
 
 @router.post("/utilisateurs/{uid}/reactivation")
@@ -400,7 +414,7 @@ def verifier_piece(uid: int, type_document: str, body: Decision, a: dict = SUPPO
         raise HTTPException(404, "Cette pièce n'a pas été déposée")
     libelle = PIECES[type_document]
     if body.decision == "valide":
-        expire = body.expire_le or date.today() + timedelta(days=365)
+        expire = body.expire_le or date.today() + timedelta(days=30 * parametres.valeur("agrement_validite_mois"))
         conn.execute("UPDATE document_agrement SET statut = 'valide', expire_le = %s, motif_refus = NULL, "
                      "verifie_par = %s, verifie_le = now() WHERE id_document = %s",
                      (expire, a["id_utilisateur"], d["id_document"]))
@@ -433,10 +447,7 @@ def changer_agrement(uid: int, body: ChangementAgrement, a: dict = SUPPORT,
     if body.statut == "suspendu":
         conn.execute("UPDATE utilisateur SET statut_agrement = 'suspendu' WHERE id_utilisateur = %s", (uid,))
         if body.retirer_trajets:
-            for t in conn.execute("SELECT id_trajet FROM trajet WHERE id_conducteur = %s AND statut = 'actif'",
-                                  (uid,)).fetchall():
-                passagers += retirer_trajet_entier(conn, t["id_trajet"], "conducteur indisponible")
-                retires += 1
+            retires, passagers = _retirer_trajets_de(conn, uid)
         notifier(conn, uid, "administration", f"Votre agrément de conducteur est suspendu : {body.motif}")
     else:
         conn.execute("UPDATE utilisateur SET statut_agrement = 'en_verification' WHERE id_utilisateur = %s", (uid,))
@@ -744,15 +755,564 @@ def retirer_admin(uid: int, a: dict = SUPER, conn: psycopg.Connection = Depends(
     return {"id_utilisateur": uid, "actif": False}
 
 
+def _filtres_journal(cible_type, cible_id, action, id_admin, du, au, q) -> tuple[list[str], dict]:
+    where, params = [], {"cible_type": cible_type, "cible_id": cible_id, "action": action, "id_admin": id_admin,
+                         "du": du, "au": au, "motif": _motif_texte(q)}
+    for champ in ("cible_type", "cible_id", "action", "id_admin"):
+        if params[champ] is not None and params[champ] != "":
+            where.append(f"j.{champ} = %({champ})s")
+    if du:
+        where.append("j.cree_le::date >= %(du)s")
+    if au:
+        where.append("j.cree_le::date <= %(au)s")
+    if params["motif"]:
+        where.append("j.resume ILIKE %(motif)s")
+    return where, params
+
+
+JOURNAL_FROM = "FROM journal_admin j LEFT JOIN utilisateur ad ON ad.id_utilisateur = j.id_admin"
+
+
 @router.get("/journal")
 def journal(cible_type: str | None = None, cible_id: str | None = None, action: str | None = None,
+            id_admin: int | None = None, du: date | None = None, au: date | None = None, q: str | None = None,
             page: int = 1, taille: int = 50, a: dict = Depends(admin_courant),
             conn: psycopg.Connection = Depends(get_conn)) -> dict:
-    where, params = [], {"cible_type": cible_type, "cible_id": cible_id, "action": action}
-    for champ in ("cible_type", "cible_id", "action"):
-        if params[champ]:
-            where.append(f"j.{champ} = %({champ})s")
+    where, params = _filtres_journal(cible_type, cible_id, action, id_admin, du, au, q)
+    return _paginer(conn, "SELECT j.*, ad.prenom || ' ' || ad.nom AS par", JOURNAL_FROM,
+                    where, params, "j.cree_le DESC, j.id_entree DESC", page, taille)
+
+
+@router.get("/journal/filtres")
+def filtres_journal(a: dict = Depends(admin_courant), conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    return {
+        "actions": [r["action"] for r in conn.execute(
+            "SELECT DISTINCT action FROM journal_admin ORDER BY action").fetchall()],
+        "auteurs": conn.execute(
+            "SELECT DISTINCT u.id_utilisateur, u.prenom || ' ' || u.nom AS nom FROM journal_admin j "
+            "JOIN utilisateur u ON u.id_utilisateur = j.id_admin ORDER BY nom").fetchall(),
+    }
+
+
+@router.get("/export/journal.csv")
+def export_journal(action: str | None = None, id_admin: int | None = None, du: date | None = None,
+                   au: date | None = None, q: str | None = None, a: dict = Depends(admin_courant),
+                   conn: psycopg.Connection = Depends(get_conn)) -> Response:
+    where, params = _filtres_journal(None, None, action, id_admin, du, au, q)
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    lignes = conn.execute(f"SELECT j.cree_le, ad.prenom || ' ' || ad.nom AS par, j.action, j.cible_type, j.cible_id, "
+                          f"j.resume {JOURNAL_FROM}{clause} ORDER BY j.cree_le DESC, j.id_entree DESC", params).fetchall()
+    tampon = io.StringIO()
+    w = csv.writer(tampon, delimiter=";", lineterminator="\r\n")
+    w.writerow(["date", "par", "action", "cible", "id_cible", "resume"])
+    for l in lignes:
+        w.writerow([l["cree_le"], l["par"] or "ligne de commande", l["action"], l["cible_type"], l["cible_id"] or "",
+                    l["resume"]])
+    return Response("\ufeff" + tampon.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="journal-{date.today()}.csv"'})
+
+
+# --- Signalements et évaluations -----------------------------------------------------------------
+
+EVALUATIONS_SELECT = """SELECT e.id_evaluation, e.note, e.commentaire, e.signalement_grave, e.cree_le, e.traite_le,
+       e.decision, e.note_traitement, au.id_utilisateur AS id_auteur, au.prenom || ' ' || au.nom AS auteur,
+       ev.id_utilisateur AS id_evalue, ev.prenom || ' ' || ev.nom AS evalue, ev.est_conducteur AS evalue_conducteur,
+       ev.statut_agrement AS agrement_evalue, ev.suspendu_le AS evalue_suspendu_le,
+       t.id_trajet, t.depart_libelle || ' → ' || t.arrivee_libelle AS trajet, r.date_trajet,
+       tr.prenom || ' ' || tr.nom AS traite_par"""
+EVALUATIONS_FROM = """FROM evaluation e JOIN utilisateur au ON au.id_utilisateur = e.id_auteur
+       JOIN utilisateur ev ON ev.id_utilisateur = e.id_evalue
+       JOIN reservation r USING (id_reservation) JOIN trajet t USING (id_trajet)
+       LEFT JOIN utilisateur tr ON tr.id_utilisateur = e.traite_par"""
+
+
+@router.get("/evaluations")
+def evaluations(filtre: Literal["a_traiter", "signalements", "mauvaises", "toutes"] = "a_traiter",
+                q: str | None = None, page: int = 1, taille: int = 25, a: dict = SUPPORT,
+                conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    where = {"a_traiter": ["e.signalement_grave AND e.traite_le IS NULL"], "signalements": ["e.signalement_grave"],
+             "mauvaises": ["e.note <= 2"], "toutes": []}[filtre]
+    params = {"motif": _motif_texte(q)}
+    if params["motif"]:
+        where.append("((au.prenom || ' ' || au.nom) ILIKE %(motif)s OR (ev.prenom || ' ' || ev.nom) ILIKE %(motif)s "
+                     "OR e.commentaire ILIKE %(motif)s)")
+    ordre = "e.cree_le, e.id_evaluation" if filtre == "a_traiter" else "e.cree_le DESC, e.id_evaluation DESC"
+    return _paginer(conn, EVALUATIONS_SELECT, EVALUATIONS_FROM, where, params, ordre, page, taille)
+
+
+@router.get("/evaluations/statistiques")
+def statistiques_evaluations(a: dict = SUPPORT, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    g = conn.execute(
+        """SELECT round(avg(note), 2) AS moyenne, count(*) AS nombre,
+                  count(*) FILTER (WHERE signalement_grave AND traite_le IS NULL) AS a_traiter,
+                  count(*) FILTER (WHERE signalement_grave) AS signalements
+             FROM evaluation""").fetchone()
+    repartition = {r["note"]: r["n"] for r in conn.execute(
+        "SELECT note, count(*) n FROM evaluation GROUP BY note").fetchall()}
+    return {
+        **g,
+        "repartition": [{"note": n, "n": repartition.get(n, 0)} for n in range(5, 0, -1)],
+        "a_surveiller": conn.execute(
+            """SELECT v.id_utilisateur, v.prenom || ' ' || v.nom AS conducteur, v.note_moyenne, v.nb_evaluations,
+                      v.nb_signalements, u.statut_agrement
+                 FROM v_note_conducteur v JOIN utilisateur u USING (id_utilisateur)
+                WHERE v.nb_signalements > 0 OR (v.nb_evaluations >= 2 AND v.note_moyenne < 3.5)
+                ORDER BY v.nb_signalements DESC, v.note_moyenne NULLS LAST LIMIT 10""").fetchall(),
+    }
+
+
+class Traitement(BaseModel):
+    decision: Literal["classe", "avertissement", "suspension_agrement", "suspension_compte"]
+    note: str = Field(min_length=3, max_length=300)
+    retablir_agrement: bool = False
+
+
+@router.post("/signalements/{id_evaluation}/traitement")
+def traiter_signalement(id_evaluation: int, body: Traitement, a: dict = SUPPORT,
+                        conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Décision de l'équipe sur un signalement grave.
+
+    Un signalement grave suspend aussitôt l'agrément du conducteur (déclencheur de la
+    base) : « classé » avec `retablir_agrement` le lève si ses pièces sont valides."""
+    e = conn.execute(f"{EVALUATIONS_SELECT} {EVALUATIONS_FROM} WHERE e.id_evaluation = %s",
+                     (id_evaluation,)).fetchone()
+    if e is None:
+        raise HTTPException(404, "Évaluation introuvable")
+    if not e["signalement_grave"]:
+        raise HTTPException(409, "Cette évaluation n'est pas un signalement")
+    if e["traite_le"] is not None:
+        raise HTTPException(409, "Ce signalement a déjà été traité")
+    evalue = _utilisateur(conn, e["id_evalue"])
+    effets: dict = {}
+    if body.decision in ("classe", "avertissement") and body.retablir_agrement \
+            and evalue["statut_agrement"] == "suspendu":
+        conn.execute("UPDATE utilisateur SET statut_agrement = 'en_verification' WHERE id_utilisateur = %s",
+                     (evalue["id_utilisateur"],))
+        effets["statut_agrement"] = _recalculer_agrement(conn, {**evalue, "statut_agrement": "en_verification"})
+    if body.decision == "avertissement":
+        notifier(conn, evalue["id_utilisateur"], "administration",
+                 f"Avertissement de l'équipe MboaRide après un signalement : {body.note}")
+    elif body.decision == "suspension_agrement":
+        conn.execute("UPDATE utilisateur SET statut_agrement = 'suspendu' WHERE id_utilisateur = %s AND est_conducteur",
+                     (evalue["id_utilisateur"],))
+        effets["trajets_retires"], effets["reservations_annulees"] = _retirer_trajets_de(conn, evalue["id_utilisateur"])
+        effets["statut_agrement"] = "suspendu"
+        notifier(conn, evalue["id_utilisateur"], "administration",
+                 f"Votre agrément de conducteur est suspendu après un signalement : {body.note}")
+    elif body.decision == "suspension_compte":
+        if evalue["suspendu_le"] is None:
+            effets.update(_suspendre_compte(conn, a, evalue, f"Signalement : {body.note}", True))
+    if body.decision == "classe" and effets.get("statut_agrement") == "actif":
+        notifier(conn, evalue["id_utilisateur"], "administration",
+                 "Le signalement vous concernant a été examiné, sans suite : votre agrément est rétabli.")
+    conn.execute("UPDATE evaluation SET traite_le = now(), traite_par = %s, decision = %s, note_traitement = %s "
+                 "WHERE id_evaluation = %s", (a["id_utilisateur"], body.decision, body.note, id_evaluation))
+    notifier(conn, e["id_auteur"], "administration",
+             "Merci pour votre signalement : l'équipe MboaRide l'a examiné et a pris les mesures nécessaires.")
+    libelles = {"classe": "classé sans suite", "avertissement": "avertissement", "suspension_agrement":
+                "agrément suspendu", "suspension_compte": "compte suspendu"}
+    journaliser(conn, a, "signalement", "utilisateur", evalue["id_utilisateur"],
+                f"Signalement de {e['auteur']} sur {e['evalue']} : {libelles[body.decision]} ({body.note})",
+                id_evaluation=id_evaluation, **effets)
+    return {"id_evaluation": id_evaluation, "decision": body.decision, **effets}
+
+
+# --- Organisations ------------------------------------------------------------------------------
+
+TypeOrganisation = Literal["entreprise", "etablissement_scolaire", "campus", "evenement"]
+
+
+@router.get("/organisations")
+def organisations(q: str | None = None, type_organisation: TypeOrganisation | None = None,
+                  abonnement: bool | None = None, page: int = 1, taille: int = 25, a: dict = SUPPORT,
+                  conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    where, params = [], {"motif": _motif_texte(q), "type": type_organisation, "abonnement": abonnement}
+    if params["motif"]:
+        where.append("(o.nom ILIKE %(motif)s OR o.ville ILIKE %(motif)s OR o.domaine_email ILIKE %(motif)s)")
+    if type_organisation:
+        where.append("o.type_organisation = %(type)s")
+    if abonnement is not None:
+        where.append("o.abonnement_actif = %(abonnement)s")
     return _paginer(
-        conn, "SELECT j.*, ad.prenom || ' ' || ad.nom AS par",
-        "FROM journal_admin j LEFT JOIN utilisateur ad ON ad.id_utilisateur = j.id_admin",
-        where, params, "j.cree_le DESC, j.id_entree DESC", page, taille)
+        conn,
+        """SELECT o.id_organisation, o.nom, o.type_organisation, o.ville, o.domaine_email, o.code_invitation,
+                  o.abonnement_actif, o.tarif_mensuel_fcfa, o.effectif, o.objectif_adoption, o.cree_le,
+                  (SELECT count(*) FROM appartenance a WHERE a.id_organisation = o.id_organisation) AS membres,
+                  (SELECT count(*) FROM partenariat p WHERE o.id_organisation IN (p.id_organisation_a, p.id_organisation_b))
+                      AS partenaires,
+                  (SELECT count(*) FROM invitation i WHERE i.id_organisation = o.id_organisation
+                      AND i.statut = 'envoyee') AS invitations_en_attente""",
+        "FROM organisation o", where, params, "o.nom", page, taille)
+
+
+def _organisation(conn, id_organisation: int) -> dict:
+    o = conn.execute("SELECT * FROM organisation WHERE id_organisation = %s", (id_organisation,)).fetchone()
+    if o is None:
+        raise HTTPException(404, "Organisation introuvable")
+    return o
+
+
+@router.get("/organisations/{id_organisation}")
+def fiche_organisation(id_organisation: int, a: dict = SUPPORT, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    o = _organisation(conn, id_organisation)
+    tb = conn.execute("SELECT * FROM v_tableau_bord_organisation WHERE id_organisation = %s",
+                      (id_organisation,)).fetchone()
+    invitations = conn.execute(
+        "SELECT statut, count(*) n FROM invitation WHERE id_organisation = %s GROUP BY statut",
+        (id_organisation,)).fetchall()
+    partenaires = conn.execute(
+        """SELECT o.id_organisation, o.nom, o.type_organisation, p.depuis_le FROM partenariat p
+             JOIN organisation o ON o.id_organisation = CASE WHEN p.id_organisation_a = %(id)s
+                  THEN p.id_organisation_b ELSE p.id_organisation_a END
+            WHERE %(id)s IN (p.id_organisation_a, p.id_organisation_b) ORDER BY o.nom""",
+        {"id": id_organisation}).fetchall()
+    deja = {p["id_organisation"] for p in partenaires} | {id_organisation}
+    return {
+        "organisation": o,
+        "indicateurs": {**(tb or {}), "adoption": round(tb["membres"] / o["effectif"], 3)
+                        if tb and o["effectif"] else None},
+        "membres": conn.execute(
+            """SELECT u.id_utilisateur, u.prenom || ' ' || u.nom AS nom, u.email, u.telephone, u.est_conducteur,
+                      u.statut_agrement, a.role, a.service, a.date_adhesion
+                 FROM appartenance a JOIN utilisateur u USING (id_utilisateur)
+                WHERE a.id_organisation = %s ORDER BY a.role DESC, u.nom""", (id_organisation,)).fetchall(),
+        "partenaires": partenaires,
+        "autres_organisations": [r for r in conn.execute(
+            "SELECT id_organisation, nom FROM organisation ORDER BY nom").fetchall() if r["id_organisation"] not in deja],
+        "invitations": {r["statut"]: r["n"] for r in invitations},
+        "dernieres_invitations": conn.execute(
+            "SELECT email, statut, envoyee_le, acceptee_le, relances FROM invitation WHERE id_organisation = %s "
+            "ORDER BY envoyee_le DESC LIMIT 10", (id_organisation,)).fetchall(),
+    }
+
+
+class OrganisationMaj(BaseModel):
+    nom: str | None = Field(default=None, min_length=2, max_length=120)
+    type_organisation: TypeOrganisation | None = None
+    ville: str | None = Field(default=None, min_length=2, max_length=60)
+    domaine_email: str | None = Field(default=None, max_length=120)
+    effectif: int | None = Field(default=None, gt=0)
+    tarif_mensuel_fcfa: int | None = Field(default=None, ge=0)
+    abonnement_actif: bool | None = None
+    objectif_adoption: float | None = Field(default=None, ge=0, le=1)
+
+
+class NouvelleOrganisation(OrganisationMaj):
+    nom: str = Field(min_length=2, max_length=120)
+    type_organisation: TypeOrganisation = "entreprise"
+    ville: str = Field(default="Douala", min_length=2, max_length=60)
+
+
+def _domaine(conn, domaine: str | None, sauf: int | None = None) -> str | None:
+    if domaine is None:
+        return None
+    d = domaine.strip().lower().removeprefix("@") or None
+    if d and conn.execute("SELECT 1 FROM organisation WHERE lower(domaine_email) = %s AND id_organisation <> %s",
+                          (d, sauf or 0)).fetchone():
+        raise HTTPException(409, f"Le domaine {d} appartient déjà à une autre organisation")
+    return d
+
+
+@router.post("/organisations", status_code=201)
+def creer_organisation(body: NouvelleOrganisation, a: dict = SUPPORT,
+                       conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    champs = body.model_dump(exclude_none=True)
+    champs["domaine_email"] = _domaine(conn, body.domaine_email)
+    champs["code_invitation"] = secrets.token_hex(4).upper()
+    cols = list(champs)
+    o = conn.execute(f"INSERT INTO organisation ({', '.join(cols)}) VALUES ({', '.join('%s' for _ in cols)}) "
+                     "RETURNING *", [champs[c] for c in cols]).fetchone()
+    journaliser(conn, a, "organisation_creee", "organisation", o["id_organisation"], f"Organisation {o['nom']} créée")
+    return o
+
+
+@router.patch("/organisations/{id_organisation}")
+def modifier_organisation(id_organisation: int, body: OrganisationMaj, a: dict = SUPPORT,
+                          conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    o = _organisation(conn, id_organisation)
+    champs = body.model_dump(exclude_unset=True)
+    if "domaine_email" in champs:
+        champs["domaine_email"] = _domaine(conn, champs["domaine_email"], id_organisation)
+    if not champs:
+        return o
+    sets = ", ".join(f"{c} = %s" for c in champs)
+    o2 = conn.execute(f"UPDATE organisation SET {sets} WHERE id_organisation = %s RETURNING *",
+                      [*champs.values(), id_organisation]).fetchone()
+    avant = {c: o[c] for c in champs}
+    journaliser(conn, a, "organisation_modifiee", "organisation", id_organisation,
+                f"Organisation {o2['nom']} modifiée : {', '.join(champs)}", avant=avant, apres=champs)
+    return o2
+
+
+class Partenaire(BaseModel):
+    id_organisation: int
+
+
+@router.post("/organisations/{id_organisation}/partenaires", status_code=201)
+def ajouter_partenaire(id_organisation: int, body: Partenaire, a: dict = SUPPORT,
+                       conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    o, autre = _organisation(conn, id_organisation), _organisation(conn, body.id_organisation)
+    if o["id_organisation"] == autre["id_organisation"]:
+        raise HTTPException(422, "Une organisation ne peut pas être sa propre partenaire")
+    x, y = sorted((o["id_organisation"], autre["id_organisation"]))
+    if conn.execute("INSERT INTO partenariat (id_organisation_a, id_organisation_b) VALUES (%s, %s) "
+                    "ON CONFLICT DO NOTHING RETURNING 1", (x, y)).fetchone() is None:
+        raise HTTPException(409, "Ces organisations sont déjà partenaires")
+    journaliser(conn, a, "partenariat", "organisation", id_organisation, f"{o['nom']} et {autre['nom']} partenaires")
+    return {"id_organisation": id_organisation, "partenaire": autre["id_organisation"]}
+
+
+@router.delete("/organisations/{id_organisation}/partenaires/{id_autre}")
+def retirer_partenaire(id_organisation: int, id_autre: int, a: dict = SUPPORT,
+                       conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    o, autre = _organisation(conn, id_organisation), _organisation(conn, id_autre)
+    x, y = sorted((id_organisation, id_autre))
+    if conn.execute("DELETE FROM partenariat WHERE id_organisation_a = %s AND id_organisation_b = %s RETURNING 1",
+                    (x, y)).fetchone() is None:
+        raise HTTPException(404, "Ces organisations ne sont pas partenaires")
+    journaliser(conn, a, "fin_partenariat", "organisation", id_organisation,
+                f"Fin du partenariat entre {o['nom']} et {autre['nom']}")
+    return {"id_organisation": id_organisation, "partenaire_retire": id_autre}
+
+
+class Membre(BaseModel):
+    identifiant: str = Field(min_length=3, max_length=120)
+    role: Literal["membre", "administrateur"] = "membre"
+
+
+def _par_identifiant(conn, ident: str) -> dict:
+    ident = ident.strip()
+    u = conn.execute("SELECT * FROM utilisateur WHERE lower(email) = lower(%s) "
+                     "OR replace(telephone, ' ', '') = replace(%s, ' ', '')", (ident, ident)).fetchone()
+    if u is None:
+        raise HTTPException(404, "Aucun compte MboaRide avec cet e-mail ou ce téléphone")
+    return u
+
+
+@router.post("/organisations/{id_organisation}/membres", status_code=201)
+def ajouter_membre(id_organisation: int, body: Membre, a: dict = SUPPORT,
+                   conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    o = _organisation(conn, id_organisation)
+    u = _par_identifiant(conn, body.identifiant)
+    conn.execute("INSERT INTO appartenance (id_utilisateur, id_organisation, role) VALUES (%s, %s, %s) "
+                 "ON CONFLICT (id_utilisateur, id_organisation) DO UPDATE SET role = EXCLUDED.role",
+                 (u["id_utilisateur"], id_organisation, body.role))
+    journaliser(conn, a, "membre_organisation", "organisation", id_organisation,
+                f"{u['prenom']} {u['nom']} : {body.role} de {o['nom']}", id_utilisateur=u["id_utilisateur"])
+    return {"id_utilisateur": u["id_utilisateur"], "nom": f"{u['prenom']} {u['nom']}", "role": body.role}
+
+
+@router.delete("/organisations/{id_organisation}/membres/{uid}")
+def retirer_membre(id_organisation: int, uid: int, a: dict = SUPPORT,
+                   conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    o, u = _organisation(conn, id_organisation), _utilisateur(conn, uid)
+    if conn.execute("DELETE FROM appartenance WHERE id_utilisateur = %s AND id_organisation = %s RETURNING 1",
+                    (uid, id_organisation)).fetchone() is None:
+        raise HTTPException(404, "Cette personne n'est pas membre de l'organisation")
+    journaliser(conn, a, "membre_retire", "organisation", id_organisation,
+                f"{u['prenom']} {u['nom']} retiré·e de {o['nom']}", id_utilisateur=uid)
+    return {"id_organisation": id_organisation, "id_utilisateur": uid}
+
+
+# --- Communication ------------------------------------------------------------------------------
+
+Cible = Literal["tous", "conducteurs", "passagers", "organisation", "utilisateur"]
+
+
+def _audience(conn, cible: str, id_organisation: int | None, id_utilisateur: int | None) -> list[dict]:
+    filtre = {
+        "tous": "TRUE",
+        "conducteurs": "u.est_conducteur AND u.statut_agrement = 'actif'",
+        "passagers": "NOT u.est_conducteur",
+        "organisation": "EXISTS (SELECT 1 FROM appartenance a WHERE a.id_utilisateur = u.id_utilisateur "
+                        "AND a.id_organisation = %(org)s)",
+        "utilisateur": "u.id_utilisateur = %(uid)s",
+    }[cible]
+    return conn.execute(f"SELECT u.id_utilisateur, u.prenom, u.email FROM utilisateur u "
+                        f"WHERE u.suspendu_le IS NULL AND {filtre} ORDER BY u.id_utilisateur",
+                        {"org": id_organisation, "uid": id_utilisateur}).fetchall()
+
+
+@router.get("/communication/audience")
+def audience(cible: Cible = "tous", id_organisation: int | None = None, id_utilisateur: int | None = None,
+             a: dict = SUPPORT, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    gens = _audience(conn, cible, id_organisation, id_utilisateur)
+    return {"destinataires": len(gens), "avec_email": sum(1 for g in gens if g["email"])}
+
+
+class NouvelleAnnonce(BaseModel):
+    cible: Cible
+    id_organisation: int | None = None
+    id_utilisateur: int | None = None
+    message: str = Field(min_length=5, max_length=400)
+    par_email: bool = False
+    objet: str = Field(default="Message de l'équipe MboaRide", min_length=3, max_length=120)
+
+    @model_validator(mode="after")
+    def _cible(self):
+        if self.cible == "organisation" and self.id_organisation is None:
+            raise ValueError("Choisissez l'organisation destinataire")
+        if self.cible == "utilisateur" and self.id_utilisateur is None:
+            raise ValueError("Choisissez l'utilisateur destinataire")
+        return self
+
+
+@router.post("/communication/annonces", status_code=201)
+def envoyer_annonce(body: NouvelleAnnonce, a: dict = SUPPORT, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    gens = _audience(conn, body.cible, body.id_organisation, body.id_utilisateur)
+    if not gens:
+        raise HTTPException(409, "Aucun destinataire pour ce message")
+    courriels = {"envoye": 0, "simule": 0, "echec": 0}
+    for g in gens:
+        notifier(conn, g["id_utilisateur"], "administration", body.message)
+        if body.par_email and g["email"]:
+            statut = envoyer_courriel(conn, g["email"], body.objet,
+                                      f"Bonjour {g['prenom']},\n\n{body.message}\n\nL'équipe MboaRide")
+            courriels[statut] += 1
+    conn.execute(
+        "INSERT INTO annonce (cible, id_organisation, id_utilisateur, message, par_email, destinataires, courriels, "
+        "envoye_par) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (body.cible, body.id_organisation, body.id_utilisateur, body.message, body.par_email, len(gens),
+         sum(courriels.values()), a["id_utilisateur"]))
+    journaliser(conn, a, "annonce", "annonce", None,
+                f"Message envoyé à {len(gens)} utilisateur(s) ({body.cible}) : {body.message[:120]}",
+                courriels=courriels)
+    return {"destinataires": len(gens), "courriels": courriels}
+
+
+@router.get("/communication/annonces")
+def annonces(page: int = 1, taille: int = 20, a: dict = SUPPORT, conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    return _paginer(
+        conn,
+        """SELECT an.*, ad.prenom || ' ' || ad.nom AS par, o.nom AS organisation,
+                  u.prenom || ' ' || u.nom AS utilisateur""",
+        """FROM annonce an LEFT JOIN utilisateur ad ON ad.id_utilisateur = an.envoye_par
+           LEFT JOIN organisation o ON o.id_organisation = an.id_organisation
+           LEFT JOIN utilisateur u ON u.id_utilisateur = an.id_utilisateur""",
+        [], {}, "an.cree_le DESC, an.id_annonce DESC", page, taille)
+
+
+@router.get("/communication/courriels")
+def courriels(statut: Literal["envoye", "simule", "echec"] | None = None, q: str | None = None,
+              page: int = 1, taille: int = 25, a: dict = SUPPORT,
+              conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    where, params = [], {"statut": statut, "motif": _motif_texte(q)}
+    if statut:
+        where.append("c.statut = %(statut)s")
+    if params["motif"]:
+        where.append("(c.destinataire ILIKE %(motif)s OR c.sujet ILIKE %(motif)s)")
+    return _paginer(conn, "SELECT c.id_courriel, c.destinataire, c.sujet, c.statut, c.erreur, c.cree_le",
+                    "FROM courriel c", where, params, "c.cree_le DESC, c.id_courriel DESC", page, taille)
+
+
+@router.get("/communication/codes")
+def codes_envoyes(q: str | None = None, page: int = 1, taille: int = 25, a: dict = SUPPORT,
+                  conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Codes de vérification envoyés par l'API Node : canal, destination masquée, validité.
+
+    Le code lui-même n'est jamais conservé en clair (seule son empreinte l'est, côté Node)."""
+    if not conn.execute("SELECT to_regclass('public.otp_deliveries') AS t").fetchone()["t"]:
+        return {"total": 0, "page": 1, "taille": taille, "lignes": [], "resume": None, "disponible": False}
+    where, params = [], {"motif": _motif_texte(q)}
+    if params["motif"]:
+        where.append("(nu.full_name ILIKE %(motif)s OR nu.email ILIKE %(motif)s OR nu.phone ILIKE %(motif)s)")
+    res = _paginer(
+        conn,
+        """SELECT d.id, d.channel AS canal, d.destination, d.minutes, to_timestamp(d.created_at / 1000.0) AS envoye_le,
+                  nu.full_name AS nom, nu.is_verified AS verifie, cn.id_utilisateur""",
+        """FROM public.otp_deliveries d JOIN public.users nu ON nu.id = d.user_id
+           LEFT JOIN compte_node cn ON cn.id_compte_node = nu.id""",
+        where, params, "d.created_at DESC, d.id DESC", page, taille)
+    res["resume"] = conn.execute(
+        """SELECT count(*) AS total,
+                  count(*) FILTER (WHERE channel = 'email') AS email,
+                  count(*) FILTER (WHERE channel = 'sms') AS sms,
+                  count(*) FILTER (WHERE channel = 'console') AS console,
+                  count(*) FILTER (WHERE to_timestamp(created_at / 1000.0) > now() - interval '1 day') AS dernieres_24h,
+                  (SELECT channel FROM public.otp_deliveries ORDER BY created_at DESC, id DESC LIMIT 1) AS dernier_canal
+             FROM public.otp_deliveries""").fetchone()
+    res["disponible"] = True
+    return res
+
+
+# --- Paramètres ---------------------------------------------------------------------------------
+
+def _liste_parametres(conn) -> list[dict]:
+    stockes = {r["cle"]: r for r in conn.execute(
+        "SELECT p.cle, p.maj_le, u.prenom || ' ' || u.nom AS maj_par FROM parametre p "
+        "LEFT JOIN utilisateur u ON u.id_utilisateur = p.maj_par").fetchall()}
+    v = parametres.valeurs()
+    return [{"cle": cle, **d, "valeur": v[cle], "maj_le": stockes.get(cle, {}).get("maj_le"),
+             "maj_par": stockes.get(cle, {}).get("maj_par")} for cle, d in parametres.DEFINITIONS.items()]
+
+
+@router.get("/parametres")
+def lire_parametres(a: dict = Depends(admin_courant), conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+    parametres.invalider()
+    return _liste_parametres(conn)
+
+
+class Reglages(BaseModel):
+    valeurs: dict[str, int] = Field(min_length=1)
+
+
+def _controler(valeurs: dict[str, int]) -> None:
+    for cle, val in valeurs.items():
+        d = parametres.DEFINITIONS.get(cle)
+        if d is None:
+            raise HTTPException(422, f"Paramètre inconnu : {cle}")
+        if not d["min"] <= val <= d["max"]:
+            raise HTTPException(422, f"{d['libelle']} : entre {d['min']} et {d['max']} {d['unite']}")
+
+
+@router.put("/parametres")
+def enregistrer_parametres(body: Reglages, a: dict = SUPER, conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+    _controler(body.valeurs)
+    parametres.invalider()
+    avant = parametres.valeurs()
+    changes = {c: v for c, v in body.valeurs.items() if avant[c] != v}
+    for cle, val in changes.items():
+        conn.execute("INSERT INTO parametre (cle, valeur, maj_par) VALUES (%s, %s, %s) ON CONFLICT (cle) DO UPDATE "
+                     "SET valeur = EXCLUDED.valeur, maj_le = now(), maj_par = EXCLUDED.maj_par",
+                     (cle, val, a["id_utilisateur"]))
+    if changes:
+        d = parametres.DEFINITIONS
+        journaliser(conn, a, "parametres", "parametre", None,
+                    "Paramètres modifiés : " + ", ".join(f"{d[c]['libelle']} {avant[c]} → {v} {d[c]['unite']}"
+                                                         for c, v in changes.items()),
+                    avant={c: avant[c] for c in changes}, apres=changes)
+    conn.commit()                 # visible par la relecture du cache, qui passe par sa propre connexion
+    parametres.invalider()
+    return _liste_parametres(conn)
+
+
+class Simulation(BaseModel):
+    valeurs: dict[str, int] = {}
+    distance_km: float = Field(default=10, gt=0, le=500)
+    conso_l_100km: float = Field(default=7.5, gt=0, le=30)
+    passagers: int = Field(default=2, ge=1, le=8)
+
+
+@router.post("/parametres/simulation")
+def simuler(body: Simulation, a: dict = Depends(admin_courant)) -> dict:
+    """Prix d'un trajet type avec les réglages actuels et avec ceux proposés, avant d'enregistrer."""
+    _controler(body.valeurs)
+    from dataclasses import replace
+    from fractions import Fraction
+
+    from mboaride_agents.pricing import quote  # type: ignore
+    from .. import moteur
+
+    def devis(v: dict) -> dict:
+        pol = replace(moteur.POLITIQUE, fuel_price_per_l=v["prix_carburant_fcfa_l"],
+                      commission_rate=Fraction(v["commission_pct"], 100), rounding_step=v["arrondi_fcfa"],
+                      min_fare=v["prix_minimum_fcfa"])
+        q = quote(pol, shared_distance_m=round(body.distance_km * 1000), detour_m=0,
+                  trip_distance_m=round(body.distance_km * 1000), consumption_l_per_100km=body.conso_l_100km,
+                  tolls=0, seats_total=8, seats_booked=body.passagers - 1, seats_requested=1, min_price=0,
+                  with_commission=True)
+        return {"prix_fcfa": q.price, "commission_fcfa": q.commission, "part_conducteur_fcfa": q.price - q.commission,
+                "carburant_fcfa": q.fuel_cost}
+
+    actuels = parametres.valeurs()
+    return {"actuel": devis(actuels), "propose": devis({**actuels, **body.valeurs})}
