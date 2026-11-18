@@ -112,11 +112,20 @@ MboaRide »), avec l'un des trois rôles :
 
 | Rôle | Accès |
 |---|---|
-| Super admin | tout, y compris l'équipe |
-| Support | utilisateurs (suspension), agréments (pièces à valider), trajets et courses |
+| Super admin | tout, y compris les paramètres et l'équipe |
+| Support | utilisateurs (suspension), agréments (pièces à valider), trajets et courses, signalements, organisations, communication |
 | Finance | paiements (remboursement, export CSV), finances |
 
-Chaque action est tracée dans le « Journal d'audit ».
+Chaque action est tracée dans le « Journal d'audit », filtrable et exportable en CSV.
+
+Les **paramètres** de la console (prix du carburant, commission, arrondi, prix minimum,
+clôture automatique des courses, validité des pièces, validité du code de vérification)
+s'appliquent en quelques secondes, sans relancer. Ils remplacent les variables
+d'environnement correspondantes (`OTP_MINUTES`, `MBOARIDE_VALIDATION_AUTO_HEURES`).
+
+Le lanceur valide automatiquement les pièces d'agrément déposées (`MBOARIDE_AGREMENT_AUTO=1`,
+pratique en démonstration) : pour essayer la vérification des pièces dans la console, le
+retirer de `scripts/lancer_tout.ps1`.
 
 ### 5. Lancer l'application
 

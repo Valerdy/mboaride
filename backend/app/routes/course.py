@@ -22,7 +22,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import config
+from .. import config, parametres
 from .. import portefeuille as pf
 from ..db import get_conn
 from ..notifications import notifier
@@ -120,7 +120,7 @@ def regler_si_complet(conn, id_trajet: int, jour: date) -> dict | None:
                  f"commission MboaRide de {commission} FCFA déduite", ref)
     notifier(conn, t["id_conducteur"], "versement",
              f"Tout l'équipage a validé la fin de la course {trajet} du {jour:%d/%m} : {total} FCFA versés "
-             f"dans votre portefeuille (commission MboaRide de 10 % : {commission} FCFA).")
+             f"dans votre portefeuille (commission MboaRide : {commission} FCFA).")
     virement = None
     p = pf.ouvrir(conn, t["id_conducteur"])
     compte = pf.compte_par_defaut(conn, t["id_conducteur"])
@@ -143,7 +143,8 @@ def regler_courses_echues(conn, id_conducteur: int | None = None) -> int:
              WHERE c.statut IN ('en_cours', 'arrivee')
                AND coalesce(c.arrivee_le, c.demarree_le) < now() - make_interval(hours => %s)
                {"AND t.id_conducteur = %s" if id_conducteur is not None else ""}""",
-        (config.VALIDATION_AUTO_HEURES, *([id_conducteur] if id_conducteur is not None else []))).fetchall()
+        (parametres.valeur("validation_auto_heures"),
+         *([id_conducteur] if id_conducteur is not None else []))).fetchall()
     for c in courses:
         for p in passagers_payes(conn, c["id_trajet"], c["date_trajet"]):
             if p["fin_validee_le"] is None:

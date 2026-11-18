@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { HttpError } from "./errors.js";
 import { AuthedRequest, requireAuth, UserRow } from "./middleware.js";
 import * as notifications from "./notifications.js";
+import { otpMinutes } from "./settings.js";
 import { identifierSchema, loginSchema, refreshSchema, registerSchema, verifySchema } from "./schemas.js";
 import {
   createAccessToken, digest, hashPassword, newOtp, newRefreshToken, normalizeIdentifier, verifyPassword,
@@ -28,12 +29,16 @@ export function authRouter(db: Knex): Router {
   async function issueOtp(user: UserRow): Promise<{ code: string; sentTo: string }> {
     await db("otp_codes").where({ user_id: user.id, consumed: false }).update({ consumed: true });
     const code = newOtp();
+    const minutes = await otpMinutes(db); // réglable dans la console d'administration
     await db("otp_codes").insert({
-      user_id: user.id, code_hash: digest(code), expires_at: now() + config.otpMinutes * 60_000,
+      user_id: user.id, code_hash: digest(code), expires_at: now() + minutes * 60_000,
       attempts: 0, consumed: false,
     });
     const deliveries = await notifications.sendCode(
-      { email: user.email, phone: user.phone, name: user.full_name }, code, config.otpMinutes);
+      { email: user.email, phone: user.phone, name: user.full_name }, code, minutes);
+    await db("otp_deliveries").insert(deliveries.map((d) => ({
+      user_id: user.id, channel: d.channel, destination: d.to.slice(0, 80), minutes, created_at: now(),
+    })));
     return { code, sentTo: notifications.describe(deliveries) };
   }
 

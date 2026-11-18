@@ -42,6 +42,14 @@ describe("authentification", () => {
     expect(r.body.email).toBe(EMAIL);
   });
 
+  it("chaque code envoyé est tracé pour la console d'administration", async () => {
+    await register();
+    await api.post("/auth/otp/resend").send({ identifier: EMAIL });
+    const envois = await db("otp_deliveries").orderBy("id");
+    expect(envois).toHaveLength(2);
+    expect(envois[0]).toMatchObject({ channel: "console", destination: "console du serveur", minutes: 5 });
+  });
+
   it("le mot de passe est haché (Argon2)", async () => {
     await registerAndVerify();
     const u = await db("users").first();

@@ -650,7 +650,7 @@ def gains(u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = Dep
         r = rows[0]
         km = moteur.distance_km(r["depart_lat"], r["depart_lon"], r["arrivee_lat"], r["arrivee_lon"],
                                 r["type_trajet"] == "interurbain")
-        carburant = round(km * float(r["conso_l_100km"]) / 100 * moteur.POLITIQUE.fuel_price_per_l)
+        carburant = round(km * float(r["conso_l_100km"]) / 100 * moteur.politique().fuel_price_per_l)
         recu_dernier = int(r["montant"] or 0)
     aujourd_hui = date.today()
     return {"mois": f"{MOIS[aujourd_hui.month - 1].capitalize()} {aujourd_hui.year}",
