@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import '../core/app_config.dart';
+import '../core/mboa_theme.dart';
 
 typedef CrewMember = Map<String, dynamic>;
 
@@ -33,10 +34,10 @@ class CrewMapScreen extends StatefulWidget {
 class _CrewMapScreenState extends State<CrewMapScreen> {
   final MapController _mapController = MapController();
 
-  static const Color primaryGreen = Color(0xFF0B6647);
-  static const Color darkGreen = Color(0xFF074731);
-  static const Color softGreen = Color(0xFFE6F2ED);
-  static const Color bgBeige = Color(0xFFF6F5F0);
+  static const Color primaryGreen = MboaColors.green;
+  static const Color darkGreen = MboaColors.greenDeep;
+  static const Color softGreen = MboaColors.greenSoft;
+  static const Color bgBeige = MboaColors.sand;
 
   String _crewStatus = 'searching';
   String? _crewId;

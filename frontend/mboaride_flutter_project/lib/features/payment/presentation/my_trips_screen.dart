@@ -194,9 +194,9 @@ class _TripCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (color, background) = switch (trip.state) {
-      TripState.toConfirm => (const Color(0xFF6B4E00), const Color(0xFFFDF3D0)),
-      TripState.confirmed => (MboaColors.green, const Color(0xFFE6F2ED)),
-      _ => (MboaColors.mutedText, const Color(0xFFEDEFEE)),
+      TripState.toConfirm => (MboaColors.sunText, MboaColors.sunSoft),
+      TripState.confirmed => (MboaColors.green, MboaColors.greenSoft),
+      _ => (MboaColors.mutedText, MboaColors.neutralSoft),
     };
     return Container(
       margin: const EdgeInsets.only(bottom: 10),

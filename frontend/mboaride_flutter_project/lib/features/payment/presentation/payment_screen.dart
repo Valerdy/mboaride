@@ -498,7 +498,7 @@ class _Banner extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(color: const Color(0xFFF9E3E0), borderRadius: BorderRadius.circular(12)),
-    child: Text(text, style: const TextStyle(color: Color(0xFF9E2A1F))),
+    decoration: BoxDecoration(color: MboaColors.redSoft, borderRadius: BorderRadius.circular(12)),
+    child: Text(text, style: const TextStyle(color: MboaColors.redText)),
   );
 }

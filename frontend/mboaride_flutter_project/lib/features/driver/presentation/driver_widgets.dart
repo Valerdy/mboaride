@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../../../core/mboa_theme.dart';
 
-/// Couleurs secondaires des wireframes conducteur, dérivées de la charte de Cindy.
+/// Couleurs secondaires des wireframes conducteur, dérivées de la charte de Cindy
+/// (palette douce de MboaColors).
 class DriverColors {
-  static const Color softGreen = Color(0xFFE6F2ED);
-  static const Color line = Color(0xFFDCE3DE);
-  static const Color softSun = Color(0xFFFDF3D0);
-  static const Color sunText = Color(0xFF6B4E00);
-  static const Color softRed = Color(0xFFF9E3E0);
-  static const Color redText = Color(0xFF9E2A1F);
-  static const Color softGrey = Color(0xFFEDEFEE);
+  static const Color softGreen = MboaColors.greenSoft;
+  static const Color line = MboaColors.line;
+  static const Color softSun = MboaColors.sunSoft;
+  static const Color sunText = MboaColors.sunText;
+  static const Color softRed = MboaColors.redSoft;
+  static const Color redText = MboaColors.redText;
+  static const Color softGrey = MboaColors.neutralSoft;
 }
 
 enum PillTone { success, warning, danger, neutral }
@@ -31,20 +32,26 @@ class StatusPill extends StatelessWidget {
       PillTone.neutral => (DriverColors.softGrey, MboaColors.mutedText),
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        label,
-        style: TextStyle(color: foreground, fontSize: 13, fontWeight: FontWeight.w500),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 6, height: 6, decoration: BoxDecoration(color: foreground, shape: BoxShape.circle)),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(label, style: TextStyle(color: foreground, fontSize: 12.5, fontWeight: FontWeight.w600)),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Carte blanche à bord fin, comme sur les écrans de Cindy.
+/// Carte blanche arrondie, posée sur le sable avec une ombre légère.
 class DriverCard extends StatelessWidget {
   const DriverCard({super.key, required this.child, this.padding = const EdgeInsets.all(16)});
 
@@ -54,16 +61,16 @@ class DriverCard extends StatelessWidget {
   /// Surface Material (et non un simple fond) : les interrupteurs et listes posés dessus
   /// gardent leur effet visuel au toucher.
   @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.white,
-    clipBehavior: Clip.antiAlias,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(16),
-      side: const BorderSide(color: DriverColors.line),
-    ),
-    child: SizedBox(
-      width: double.infinity,
-      child: Padding(padding: padding, child: child),
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: MboaDecor.card(),
+    child: Material(
+      color: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(MboaDecor.radius)),
+      child: SizedBox(
+        width: double.infinity,
+        child: Padding(padding: padding, child: child),
+      ),
     ),
   );
 }
@@ -80,10 +87,10 @@ class InfoBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     decoration: BoxDecoration(
       color: warm ? DriverColors.softSun : DriverColors.softGreen,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(18),
     ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -117,8 +124,8 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 6, bottom: 10),
-    child: Text(text, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+    padding: const EdgeInsets.only(top: 10, bottom: 10),
+    child: Text(text, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, letterSpacing: -0.2)),
   );
 }
 
@@ -198,8 +205,14 @@ void showDriverMessage(BuildContext context, String message, {bool isError = fal
     ..hideCurrentSnackBar()
     ..showSnackBar(
     SnackBar(
-      content: Text(message),
-      backgroundColor: isError ? MboaColors.red : MboaColors.green,
+      content: Row(
+        children: [
+          Icon(isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+              color: isError ? const Color(0xFFFFB4A8) : const Color(0xFF9FE3C6)),
+          const SizedBox(width: 10),
+          Expanded(child: Text(message)),
+        ],
+      ),
     ),
   );
 }

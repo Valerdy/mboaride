@@ -144,7 +144,7 @@ class _EndOfRideScreenState extends State<EndOfRideScreen> {
   List<Widget> _done(EndOfRideResult r) => [
     Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFFE6F2ED), borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(color: MboaColors.greenSoft, borderRadius: BorderRadius.circular(16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

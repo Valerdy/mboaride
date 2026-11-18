@@ -146,12 +146,14 @@ class NotificationBell extends StatefulWidget {
     super.key,
     required this.repository,
     this.interval = const Duration(seconds: 20),
-    this.color = Colors.white,
+    this.color,
   });
 
   final NotificationsRepository repository;
   final Duration interval;
-  final Color color;
+
+  /// Couleur de l'icône ; par défaut celle de la barre de titre.
+  final Color? color;
 
   @override
   State<NotificationBell> createState() => _NotificationBellState();
@@ -301,7 +303,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               final n = items[i];
               return ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: n.urgent ? const Color(0xFFFDE7D3) : const Color(0xFFE6F2ED),
+                  backgroundColor: n.urgent ? const Color(0xFFFDE7D3) : MboaColors.greenSoft,
                   child: Icon(n.icon, color: n.urgent ? const Color(0xFFB8580B) : MboaColors.green),
                 ),
                 title: Text(

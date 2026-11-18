@@ -177,7 +177,7 @@ class _ChildCard extends StatelessWidget {
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
       border: Border.all(
-        color: child.authorized ? MboaColors.green : const Color(0xFFDCE3DE),
+        color: child.authorized ? MboaColors.green : MboaColors.border,
         width: child.authorized ? 1.5 : 1,
       ),
     ),

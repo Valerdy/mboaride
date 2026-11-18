@@ -255,7 +255,7 @@ class _OfferCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: blocked ? const Color(0xFFDCE3DE) : MboaColors.green,
+            color: blocked ? MboaColors.border : MboaColors.green,
             width: blocked ? 1 : 1.5,
           ),
         ),
@@ -494,7 +494,7 @@ class _Tag extends StatelessWidget {
     decoration: BoxDecoration(
       color: MboaColors.sand,
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: const Color(0xFFDCE3DE)),
+      border: Border.all(color: MboaColors.line),
     ),
     child: Text(
       text,

@@ -143,7 +143,7 @@ class _IntercityScreenState extends State<IntercityScreen> {
                       border: Border.all(
                         color: selected
                             ? MboaColors.green
-                            : const Color(0xFFDCE3DE),
+                            : MboaColors.border,
                       ),
                     ),
                     child: Column(
@@ -254,7 +254,7 @@ class _TripCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: trip.isFull ? const Color(0xFFDCE3DE) : MboaColors.green,
+          color: trip.isFull ? MboaColors.border : MboaColors.green,
           width: trip.isFull ? 1 : 1.5,
         ),
       ),
@@ -512,7 +512,7 @@ class _Tag extends StatelessWidget {
     decoration: BoxDecoration(
       color: strong ? MboaColors.sun : MboaColors.sand,
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: const Color(0xFFDCE3DE)),
+      border: Border.all(color: MboaColors.line),
     ),
     child: Text(
       text,

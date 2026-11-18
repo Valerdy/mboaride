@@ -161,7 +161,7 @@ class _Controls extends StatelessWidget {
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFFDCE3DE)),
+      border: Border.all(color: MboaColors.line),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -375,7 +375,7 @@ class _MeasureCard extends StatelessWidget {
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFFDCE3DE)),
+      border: Border.all(color: MboaColors.line),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -336,7 +336,7 @@ class _Card extends StatelessWidget {
     decoration: BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0xFFDCE3DE)),
+      border: Border.all(color: MboaColors.line),
     ),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
   );
@@ -399,7 +399,7 @@ class _Success extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
-      color: const Color(0xFFE3EFE8),
+      color: MboaColors.greenSoft,
       borderRadius: BorderRadius.circular(14),
       border: Border.all(color: MboaColors.green),
     ),

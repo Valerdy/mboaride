@@ -15,6 +15,7 @@ import '../features/preferences/presentation/preferences_screen.dart';
 import '../features/wallet/wallet_screen.dart';
 import '../services/auth_service.dart';
 import '../services/session.dart';
+import '../core/mboa_theme.dart';
 
 /// Mon profil : identité et cercle (profil métier de l'API Python, créé à l'inscription),
 /// puis les services. Le véhicule et l'agrément se gèrent dans l'espace conducteur.
@@ -33,10 +34,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _loading = true;
   XFile? _pickedImage;
 
-  static const Color primaryGreen = Color(0xFF0B6647);
-  static const Color darkGreen = Color(0xFF074731);
-  static const Color softGreen = Color(0xFFE6F2ED);
-  static const Color bgBeige = Color(0xFFF6F5F0);
+  static const Color primaryGreen = MboaColors.green;
+  static const Color darkGreen = MboaColors.greenDeep;
+  static const Color softGreen = MboaColors.greenSoft;
+  static const Color bgBeige = MboaColors.sand;
 
   @override
   void initState() {
@@ -79,13 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         .toList();
     return Scaffold(
       backgroundColor: bgBeige,
-      appBar: AppBar(
-        title: const Text('Mon profil', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: primaryGreen,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Mon profil')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
