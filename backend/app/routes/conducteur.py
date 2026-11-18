@@ -412,20 +412,25 @@ def retirer_trajet(id_trajet: int, body: Retrait, u: dict = Depends(utilisateur_
                    conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """Retire un trajet entier : il n'est plus proposé, et chaque passager déjà inscrit est
     prévenu, remboursé et réaffecté si possible (comme pour l'annulation d'une date)."""
-    from .annulation import liberer_passagers
-
     t = _mon_trajet(conn, id_trajet, u)
     if t["statut"] == "annule":
         raise HTTPException(409, "Ce trajet est déjà retiré")
+    passagers = retirer_trajet_entier(conn, id_trajet, body.motif or "trajet retiré par le conducteur")
+    return {"id_trajet": id_trajet, "etat": "retire", "reservations_annulees": passagers}
+
+
+def retirer_trajet_entier(conn, id_trajet: int, motif: str) -> int:
+    """Passe le trajet à « annulé » et libère les passagers de chaque date à venir.
+
+    Utilisé par le conducteur et par la console d'administration. Renvoie le nombre de
+    réservations annulées."""
+    from .annulation import liberer_passagers
+
     conn.execute("UPDATE trajet SET statut = 'annule' WHERE id_trajet = %s", (id_trajet,))
     dates = [r["date_trajet"] for r in conn.execute(
         "SELECT DISTINCT date_trajet FROM reservation WHERE id_trajet = %s AND statut = 'confirmee' "
         "AND date_trajet >= CURRENT_DATE ORDER BY date_trajet", (id_trajet,)).fetchall()]
-    passagers = 0
-    for jour in dates:
-        passagers += liberer_passagers(conn, id_trajet, jour, body.motif or "trajet retiré par le conducteur")[
-            "reservations_annulees"]
-    return {"id_trajet": id_trajet, "etat": "retire", "reservations_annulees": passagers}
+    return sum(liberer_passagers(conn, id_trajet, jour, motif)["reservations_annulees"] for jour in dates)
 
 
 class Republication(BaseModel):

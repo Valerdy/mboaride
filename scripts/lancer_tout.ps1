@@ -143,6 +143,7 @@ Write-Host @"
 
 MboaRide tourne.
   Console web (navigateur) : http://localhost:$PortApi        documentation de l'API : http://localhost:$PortApi/docs
+  Administration MboaRide   : http://localhost:$PortApi/admin  (premier admin : scripts\creer_admin.py <e-mail>)
   Codes de vérification     : affichés dans l'application et dans la fenêtre « API Node »
 
 Applications (dans frontend\mboaride_flutter_project) :

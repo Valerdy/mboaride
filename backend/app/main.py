@@ -14,8 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from . import config, moteur
 from .config import RACINE
 from .db import get_conn
-from .routes import (annulation, banc, conducteur, course, demandes, demo, eleves, mes_trajets, organisation,
-                     paiement, portefeuille, preferences, prix, profil, voyages)
+from .routes import (admin, annulation, banc, conducteur, course, demandes, demo, eleves, mes_trajets,
+                     organisation, paiement, portefeuille, preferences, prix, profil, voyages)
 from .securite import utilisateur_courant
 
 app = FastAPI(title="MboaRide", version="0.3.0",
@@ -38,6 +38,7 @@ app.include_router(conducteur.router)
 app.include_router(mes_trajets.router)
 app.include_router(course.router)
 app.include_router(portefeuille.router)
+app.include_router(admin.router)
 
 WEB = RACINE / "web"
 
@@ -98,3 +99,10 @@ app.mount("/static", StaticFiles(directory=WEB), name="static")
 @app.get("/rejoindre/{jeton}", include_in_schema=False)
 def page(jeton: str | None = None) -> FileResponse:
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/admin", include_in_schema=False)
+@app.get("/admin/", include_in_schema=False)
+def console_admin() -> FileResponse:
+    """Console d'administration de la plateforme (équipe MboaRide)."""
+    return FileResponse(WEB / "admin" / "index.html")
