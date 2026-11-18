@@ -24,16 +24,17 @@ export function authRouter(db: Knex): Router {
     }
   }
 
-  /** Envoie un nouveau code (SMS si le compte a un téléphone, sinon e-mail) et le renvoie. */
-  async function issueOtp(user: UserRow): Promise<string> {
+  /** Envoie un nouveau code (par e-mail par défaut, voir OTP_CHANNEL) et dit où il est parti. */
+  async function issueOtp(user: UserRow): Promise<{ code: string; sentTo: string }> {
     await db("otp_codes").where({ user_id: user.id, consumed: false }).update({ consumed: true });
     const code = newOtp();
     await db("otp_codes").insert({
       user_id: user.id, code_hash: digest(code), expires_at: now() + config.otpMinutes * 60_000,
       attempts: 0, consumed: false,
     });
-    await notifications.sendCode((user.phone ?? user.email) as string, code);
-    return code;
+    const deliveries = await notifications.sendCode(
+      { email: user.email, phone: user.phone, name: user.full_name }, code, config.otpMinutes);
+    return { code, sentTo: notifications.describe(deliveries) };
   }
 
   const publicUser = (user: UserRow) => ({
@@ -103,9 +104,9 @@ export function authRouter(db: Knex): Router {
       await db("users").where({ id: user.id }).update({ email, phone, full_name: data.full_name, password_hash, company_id });
       user = { ...user, email, phone };
     }
-    const code = await issueOtp(user);
+    const { code, sentTo } = await issueOtp(user);
     res.status(201).json({
-      message: phone ? "Code de vérification envoyé par SMS" : "Code de vérification envoyé par e-mail",
+      message: sentTo,
       identifier: phone ?? email, phone, email,
       // Démonstration locale seulement (EXPOSE_DEV_CODE=1) : l'application affiche le code.
       ...(config.exposeDevCode ? { devOtp: code } : {}),
@@ -135,11 +136,11 @@ export function authRouter(db: Knex): Router {
   const resend = async (req: Request, res: Response) => {
     const data = identifierSchema.parse(req.body);
     const user = await findUser(data.identifier);
-    const code = user && !user.is_verified ? await issueOtp(user) : null;
+    const sent = user && !user.is_verified ? await issueOtp(user) : null;
     // Réponse identique dans tous les cas : on ne révèle pas si le compte existe.
     res.json({
       message: "Si le compte existe, un nouveau code a été envoyé",
-      ...(config.exposeDevCode && code ? { devOtp: code } : {}),
+      ...(config.exposeDevCode && sent ? { devOtp: sent.code } : {}),
     });
   };
   router.post("/otp/resend", resend);

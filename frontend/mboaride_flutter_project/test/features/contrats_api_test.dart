@@ -132,6 +132,10 @@ void main() {
             ],
           }),
           '/api/moi/conducteur/equipage' => http.Response('null', 200),
+          '/api/moi/conducteur/trajets/lot' => _json({
+            'publies': 1, 'refuses': 0,
+            'resultats': [{'rang': 0, 'publie': true, 'id_trajet': 9}],
+          }, 201),
           _ => _json({'id_trajet': 9}, 201),
         };
       });
@@ -145,12 +149,16 @@ void main() {
 
       await repository.publishTrip(
         const TripPlan(kind: TripKind.urban, from: 'Logpom', to: 'Bonanjo', weekdays: {5, 1, 3},
-            departure: '06:50', seats: 3, maxDetourKm: 2),
+            departure: '06:50', seats: 3, maxDetourKm: 2, meetingPoint: 'Station Total de Logpom'),
       );
       final publish = calls.last;
-      expect(publish.url.path, '/api/moi/conducteur/trajets');
-      expect(jsonDecode(publish.body), containsPair('jours_semaine', [1, 3, 5]));
-      expect(jsonDecode(publish.body), containsPair('type_trajet', 'urbain'));
+      // Un trajet ou plusieurs : la publication passe par le lot.
+      expect(publish.url.path, '/api/moi/conducteur/trajets/lot');
+      final trajet = (jsonDecode(publish.body)['trajets'] as List).single as Map<String, dynamic>;
+      expect(trajet, containsPair('jours_semaine', [1, 3, 5]));
+      expect(trajet, containsPair('type_trajet', 'urbain'));
+      expect(trajet, containsPair('point_ramassage', 'Station Total de Logpom'));
+      expect(trajet.containsKey('date_trajet'), isFalse);
 
       expect(await repository.nextCrew(), isNull);
     });

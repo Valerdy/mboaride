@@ -7,7 +7,7 @@ import '../data/driver_repository.dart';
 import 'agent_activity_screen.dart';
 import 'driver_home_screen.dart';
 import 'earnings_screen.dart';
-import 'publish_trip_screen.dart';
+import 'scheduled_trips_screen.dart';
 
 /// Espace conducteur : quatre onglets en bas (Accueil, Trajets, Activité, Gains).
 class DriverShell extends StatefulWidget {
@@ -51,7 +51,7 @@ class _DriverShellState extends State<DriverShell> {
         walletRepository: widget.walletRepository,
         notifications: widget.notifications,
       ),
-      1 => PublishTripScreen(repository: repository),
+      1 => ScheduledTripsScreen(repository: repository),
       2 => AgentActivityScreen(repository: repository),
       _ => EarningsScreen(repository: repository, walletRepository: widget.walletRepository),
     };

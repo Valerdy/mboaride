@@ -249,6 +249,10 @@ def _lieu(nom: str) -> tuple[str, float, float]:
 @router.post("/trajets", status_code=201)
 def publier(body: NouveauTrajet, u: dict = Depends(utilisateur_courant),
             conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    return _publier(conn, body, u)
+
+
+def _publier(conn, body: NouveauTrajet, u: dict) -> dict:
     if u["statut_agrement"] != "actif":
         raise HTTPException(403, "Votre agrément doit être validé avant de publier un trajet")
     v = _vehicule(conn, u["id_utilisateur"])
@@ -324,6 +328,161 @@ def preciser_ramassage(id_trajet: int, body: Ramassage, u: dict = Depends(utilis
                  + (f" ({t['consignes_ramassage']})" if t["consignes_ramassage"] else "") + ".")
     return {"id_trajet": id_trajet, "point_ramassage": t["point_ramassage"],
             "consignes_ramassage": t["consignes_ramassage"], "attente_max_min": t["attente_max_min"]}
+
+
+# --- Trajets programmés : plusieurs à la fois, retrait, republication ------------------------
+
+class LotDeTrajets(BaseModel):
+    trajets: list[NouveauTrajet] = Field(min_length=1, max_length=20)
+
+
+@router.post("/trajets/lot", status_code=201)
+def publier_plusieurs(body: LotDeTrajets, u: dict = Depends(utilisateur_courant),
+                      conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Programme plusieurs trajets d'un coup (aller et retour, plusieurs dates ou horaires).
+
+    Chaque trajet est publié ou refusé indépendamment des autres : un doublon ou un lieu
+    inconnu n'empêche pas de publier le reste du lot."""
+    resultats = []
+    for i, trajet in enumerate(body.trajets):
+        try:
+            with conn.transaction():
+                publie = _publier(conn, trajet, u)
+            resultats.append({"rang": i, "publie": True, "id_trajet": publie["id_trajet"], "trajet": publie})
+        except HTTPException as exc:
+            resultats.append({"rang": i, "publie": False, "erreur": exc.detail})
+    return {"publies": sum(r["publie"] for r in resultats), "refuses": sum(not r["publie"] for r in resultats),
+            "resultats": resultats}
+
+
+def _jours(t: dict) -> list[int]:
+    return [i + 1 for i, c in enumerate(t["jours_semaine"] or "") if c == "1"]
+
+
+def _prochain_depart(conn, t: dict, annulees: set) -> date | None:
+    for i in range(0, 60):
+        jour = date.today() + timedelta(days=i)
+        if roule_le(t, jour) and jour not in annulees:
+            return jour
+    return None
+
+
+@router.get("/trajets")
+def mes_trajets_programmes(u: dict = Depends(utilisateur_courant),
+                           conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+    """Tous les trajets du conducteur : actifs, retirés ou passés, avec leurs dates annulées."""
+    trajets = conn.execute("SELECT * FROM trajet WHERE id_conducteur = %s ORDER BY statut = 'actif' DESC, "
+                           "heure_depart, id_trajet DESC", (u["id_utilisateur"],)).fetchall()
+    out = []
+    for t in trajets:
+        annulees = {r["date_trajet"] for r in conn.execute(
+            "SELECT date_trajet FROM indisponibilite_trajet WHERE id_trajet = %s AND date_trajet >= CURRENT_DATE "
+            "ORDER BY date_trajet", (t["id_trajet"],)).fetchall()}
+        a_venir = conn.execute(
+            "SELECT count(*) n FROM reservation WHERE id_trajet = %s AND statut = 'confirmee' "
+            "AND date_trajet >= CURRENT_DATE", (t["id_trajet"],)).fetchone()["n"]
+        passe = t["date_unique"] is not None and t["date_unique"] < date.today()
+        etat = "retire" if t["statut"] == "annule" else ("passe" if passe or t["statut"] == "termine" else "actif")
+        prochain = _prochain_depart(conn, t, annulees) if etat == "actif" else None
+        out.append({
+            "id_trajet": t["id_trajet"], "type_trajet": t["type_trajet"], "etat": etat,
+            "depart": t["depart_libelle"], "arrivee": t["arrivee_libelle"],
+            "heure_depart": _hhmm(t["heure_depart"]), "jours_semaine": _jours(t), "date_unique": t["date_unique"],
+            "places": t["places_offertes"], "detour_max_km": float(t["detour_max_km"]),
+            "point_ramassage": t["point_ramassage"], "consignes_ramassage": t["consignes_ramassage"],
+            "dates_annulees": sorted(annulees), "reservations_a_venir": a_venir, "prochain_depart": prochain,
+        })
+    return out
+
+
+def _mon_trajet(conn, id_trajet: int, u: dict) -> dict:
+    t = conn.execute("SELECT * FROM trajet WHERE id_trajet = %s AND id_conducteur = %s",
+                     (id_trajet, u["id_utilisateur"])).fetchone()
+    if t is None:
+        raise HTTPException(404, "Trajet introuvable")
+    return t
+
+
+class Retrait(BaseModel):
+    motif: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/trajets/{id_trajet}/retrait")
+def retirer_trajet(id_trajet: int, body: Retrait, u: dict = Depends(utilisateur_courant),
+                   conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Retire un trajet entier : il n'est plus proposé, et chaque passager déjà inscrit est
+    prévenu, remboursé et réaffecté si possible (comme pour l'annulation d'une date)."""
+    from .annulation import liberer_passagers
+
+    t = _mon_trajet(conn, id_trajet, u)
+    if t["statut"] == "annule":
+        raise HTTPException(409, "Ce trajet est déjà retiré")
+    conn.execute("UPDATE trajet SET statut = 'annule' WHERE id_trajet = %s", (id_trajet,))
+    dates = [r["date_trajet"] for r in conn.execute(
+        "SELECT DISTINCT date_trajet FROM reservation WHERE id_trajet = %s AND statut = 'confirmee' "
+        "AND date_trajet >= CURRENT_DATE ORDER BY date_trajet", (id_trajet,)).fetchall()]
+    passagers = 0
+    for jour in dates:
+        passagers += liberer_passagers(conn, id_trajet, jour, body.motif or "trajet retiré par le conducteur")[
+            "reservations_annulees"]
+    return {"id_trajet": id_trajet, "etat": "retire", "reservations_annulees": passagers}
+
+
+class Republication(BaseModel):
+    # Trajet ponctuel dont la date est passée : la nouvelle date. Ignoré pour un trajet régulier.
+    date_trajet: date | None = None
+    heure_depart: time | None = None
+
+
+@router.post("/trajets/{id_trajet}/republication")
+def republier(id_trajet: int, body: Republication, u: dict = Depends(utilisateur_courant),
+              conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Remet en ligne un trajet retiré (ou passé), à une nouvelle date si c'était un trajet ponctuel."""
+    if u["statut_agrement"] != "actif":
+        raise HTTPException(403, "Votre agrément doit être validé avant de publier un trajet")
+    t = _mon_trajet(conn, id_trajet, u)
+    nouvelle_date = t["date_unique"]
+    if t["date_unique"] is not None:
+        nouvelle_date = body.date_trajet or t["date_unique"]
+        if nouvelle_date < date.today():
+            raise HTTPException(422, "Choisissez une nouvelle date, aujourd'hui ou plus tard")
+    elif t["statut"] == "actif":
+        raise HTTPException(409, "Ce trajet est déjà en ligne")
+    if t["statut"] == "actif" and nouvelle_date == t["date_unique"] and body.heure_depart is None:
+        raise HTTPException(409, "Ce trajet est déjà en ligne")
+    heure = body.heure_depart or t["heure_depart"]
+    deja = conn.execute(
+        """SELECT id_trajet FROM trajet WHERE id_conducteur = %s AND statut = 'actif' AND id_trajet <> %s
+              AND depart_libelle = %s AND arrivee_libelle = %s AND heure_depart = %s
+              AND jours_semaine IS NOT DISTINCT FROM %s AND date_unique IS NOT DISTINCT FROM %s""",
+        (u["id_utilisateur"], id_trajet, t["depart_libelle"], t["arrivee_libelle"], heure,
+         t["jours_semaine"], nouvelle_date)).fetchone()
+    if deja is not None:
+        raise HTTPException(409, f"Un trajet identique est déjà en ligne (trajet n° {deja['id_trajet']})")
+    try:
+        with conn.transaction():
+            conn.execute("UPDATE trajet SET statut = 'actif', date_unique = %s, heure_depart = %s, "
+                         "ouvert_partenaires = %s, ouvert_public = %s WHERE id_trajet = %s",
+                         (nouvelle_date, heure, u["accepte_partenaires"], _ouvert_public(conn, u), id_trajet))
+    except psycopg.errors.RaiseException as exc:   # places supérieures à celles du véhicule actuel
+        raise HTTPException(409, exc.diag.message_primary) from None
+    return {"id_trajet": id_trajet, "etat": "actif", "date_unique": nouvelle_date, "heure_depart": _hhmm(heure)}
+
+
+@router.delete("/trajets/{id_trajet}/annulations/{date_trajet}")
+def retablir_date(id_trajet: int, date_trajet: date, u: dict = Depends(utilisateur_courant),
+                  conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Rétablit une date annulée : le trajet est de nouveau proposé ce jour-là."""
+    t = _mon_trajet(conn, id_trajet, u)
+    if date_trajet < date.today():
+        raise HTTPException(422, "Cette date est passée")
+    if t["statut"] != "actif":
+        raise HTTPException(409, "Republiez d'abord le trajet")
+    supprime = conn.execute("DELETE FROM indisponibilite_trajet WHERE id_trajet = %s AND date_trajet = %s "
+                            "RETURNING date_trajet", (id_trajet, date_trajet)).fetchone()
+    if supprime is None:
+        raise HTTPException(404, "Ce trajet n'était pas annulé à cette date")
+    return {"id_trajet": id_trajet, "date_trajet": date_trajet, "etat": "retabli"}
 
 
 # --- Prochain équipage ------------------------------------------------------------------------

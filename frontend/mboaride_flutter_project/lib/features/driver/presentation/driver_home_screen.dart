@@ -40,7 +40,7 @@ class DriverHomeScreen extends StatefulWidget {
 class _DriverHomeScreenState extends State<DriverHomeScreen> {
   late Future<DriverOverview> _loading = widget.repository.overview();
 
-  void _reload() => setState(() => _loading = widget.repository.overview());
+  void _reload() => setState(() { _loading = widget.repository.overview(); });
 
   Future<void> _push(Widget screen) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));

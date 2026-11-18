@@ -27,7 +27,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
     appBar: AppBar(title: const Text('Gains et frais')),
     body: AsyncView<Earnings>(
       future: _loading,
-      onRetry: () => setState(() => _loading = widget.repository.earnings()),
+      onRetry: () => setState(() { _loading = widget.repository.earnings(); }),
       builder: (context, earnings) {
         final coverage = earnings.lastTripCoverage;
         final percent = (coverage * 100).round();

@@ -23,7 +23,7 @@ class _AgentActivityScreenState extends State<AgentActivityScreen> {
   late Future<List<AgentEvent>> _loading = widget.repository.agentActivity();
   _Filter _filter = _Filter.all;
 
-  void _reload() => setState(() => _loading = widget.repository.agentActivity());
+  void _reload() => setState(() { _loading = widget.repository.agentActivity(); });
 
   bool _keep(AgentEvent e) => switch (_filter) {
     _Filter.all => true,

@@ -60,10 +60,16 @@ def annuler(id_trajet: int, body: Annulation, u: dict = Depends(utilisateur_cour
         raise HTTPException(409, "Ce trajet est déjà annulé pour cette date")
     conn.execute("INSERT INTO indisponibilite_trajet (id_trajet, date_trajet, motif) VALUES (%s, %s, %s)",
                  (id_trajet, body.date_trajet, body.motif))
+    return liberer_passagers(conn, id_trajet, body.date_trajet, body.motif)
+
+
+def liberer_passagers(conn, id_trajet: int, jour: date, motif: str | None) -> dict:
+    """Annule les réservations d'un trajet un jour donné : remboursement, réaffectation ou
+    demande rouverte pour chaque passager (scénario SR-47)."""
     touchees = conn.execute(
         """UPDATE reservation SET statut = 'annulee'
             WHERE id_trajet = %s AND date_trajet = %s AND statut = 'confirmee'
-        RETURNING id_reservation, id_demande""", (id_trajet, body.date_trajet)).fetchall()
+        RETURNING id_reservation, id_demande""", (id_trajet, jour)).fetchall()
 
     resultats = []
     for r in touchees:
@@ -72,15 +78,15 @@ def annuler(id_trajet: int, body: Annulation, u: dict = Depends(utilisateur_cour
                  JOIN utilisateur us ON us.id_utilisateur = d.id_demandeur
                 WHERE d.id_demande = %s""", (r["id_demande"],)).fetchone()
         notifier(conn, d["id_demandeur"], "annulation",
-                 f"Votre conducteur a annulé le trajet du {body.date_trajet:%d/%m}"
-                 + (f" ({body.motif})" if body.motif else "") + ".")
+                 f"Votre conducteur a annulé le trajet du {jour:%d/%m}"
+                 + (f" ({motif})" if motif else "") + ".")
         paiement = rembourser_ou_annuler(conn, r["id_reservation"], d["id_demandeur"])
-        offres = offres_valides(conn, d, exclure={id_trajet}, jour=body.date_trajet)
+        offres = offres_valides(conn, d, exclure={id_trajet}, jour=jour)
         res = {"id_demande": d["id_demande"], "passager": d["prenom"], "mode": d["mode_reservation"],
                "paiement": paiement, "offres_disponibles": sum(o["confirmable"] for o in offres)}
         choix = meilleure_offre(d, offres) if d["mode_reservation"] == "autonome" else None
         if choix:
-            nouvelle = reserver(conn, d, choix, body.date_trajet)
+            nouvelle = reserver(conn, d, choix, jour)
             notifier(conn, d["id_demandeur"], "reaffectation",
                      f"Réaffecté automatiquement : {choix['conducteur']} vous prend à "
                      f"{choix['prise_en_charge']}, arrivée {choix['arrivee_estimee']}, "
@@ -92,17 +98,17 @@ def annuler(id_trajet: int, body: Annulation, u: dict = Depends(utilisateur_cour
                 conn.execute("UPDATE demande SET statut = 'ouverte' WHERE id_demande = %s", (d["id_demande"],))
             notifier(conn, d["id_demandeur"], "offres",
                      f"{res['offres_disponibles']} autre(s) offre(s) disponible(s) pour le "
-                     f"{body.date_trajet:%d/%m} : choisissez dans l'onglet Prix et confirmation.")
+                     f"{jour:%d/%m} : choisissez dans l'onglet Prix et confirmation.")
             res.update(reaffecte=False)
         else:
             if d["date_unique"]:
                 conn.execute("UPDATE demande SET statut = 'ouverte' WHERE id_demande = %s", (d["id_demande"],))
             notifier(conn, d["id_demandeur"], "offres",
-                     f"Aucune autre offre pour le {body.date_trajet:%d/%m} pour l'instant : "
+                     f"Aucune autre offre pour le {jour:%d/%m} pour l'instant : "
                      f"votre demande reste ouverte et vous serez prévenu.")
             res.update(reaffecte=False)
         resultats.append(res)
-    return {"id_trajet": id_trajet, "date_trajet": body.date_trajet,
+    return {"id_trajet": id_trajet, "date_trajet": jour,
             "reservations_annulees": len(touchees), "passagers": resultats}
 
 

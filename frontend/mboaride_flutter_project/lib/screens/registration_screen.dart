@@ -145,12 +145,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       _normalizedPhoneForVerify =
           (result['phone'] as String?) ?? _phoneCtrl.text.trim();
 
+      // Le serveur dit où le code est parti : « Code envoyé par e-mail à ka***@gmail.com ».
+      final sentTo = (result['message'] as String?) ?? 'Code de vérification envoyé';
       final devCode = result['devOtp']?.toString();
       if (devCode != null && devCode.length == 6) {
-        // Pré-remplissage pratique en dev ou affichage dans la notification
-        _showSnack('Code OTP envoyé par SMS au $_normalizedPhoneForVerify (Test : $devCode)');
+        // Démonstration locale sans envoi configuré : le code est affiché ici.
+        _showSnack('$sentTo (code de démonstration : $devCode)');
       } else {
-        _showSnack('Code à 6 chiffres envoyé par SMS au $_normalizedPhoneForVerify');
+        _showSnack(sentTo);
       }
 
       if (mounted) {
@@ -167,7 +169,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   Future<void> _handleVerifyOtp() async {
     final code = _fullOtpCode;
     if (code.length != 6) {
-      _showSnack('Veuillez saisir les 6 chiffres du code reçu par SMS', isError: true);
+      _showSnack('Veuillez saisir les 6 chiffres du code reçu par e-mail', isError: true);
       return;
     }
     if (!_acceptLocationSharing) {
@@ -214,7 +216,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           _normalizedPhoneForVerify = res['phone'] as String;
           _phoneCtrl.text = _normalizedPhoneForVerify;
         });
-        _showSnack('Compte non vérifié : saisissez le code SMS reçu.');
+        _showSnack('Compte non vérifié : un nouveau code vous a été envoyé par e-mail.');
         return;
       }
 
