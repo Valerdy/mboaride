@@ -100,11 +100,20 @@ def _depuis_jeton(conn: psycopg.Connection, entete: str) -> dict:
     return utilisateur
 
 
+def _pas_suspendu(utilisateur: dict) -> dict:
+    """Un compte suspendu par l'équipe MboaRide n'a plus accès à l'application."""
+    if utilisateur.get("suspendu_le") is not None:
+        motif = utilisateur.get("motif_suspension")
+        raise HTTPException(403, "Compte suspendu par l'équipe MboaRide"
+                                 + (f" : {motif}" if motif else "") + ". Contactez le support.")
+    return utilisateur
+
+
 def utilisateur_courant(authorization: str | None = Header(default=None),
                         x_utilisateur: int | None = Header(default=None),
                         conn: psycopg.Connection = Depends(get_conn)) -> dict:
     if authorization and authorization.lower().startswith("bearer "):
-        return _depuis_jeton(conn, authorization)
+        return _pas_suspendu(_depuis_jeton(conn, authorization))
     if x_utilisateur is not None:
         if not config.DEMO_AUTH:
             raise HTTPException(401, "Authentification par jeton requise")
@@ -112,7 +121,7 @@ def utilisateur_courant(authorization: str | None = Header(default=None),
                            (x_utilisateur,)).fetchone()
         if row is None:
             raise HTTPException(401, "Utilisateur inconnu")
-        return row
+        return _pas_suspendu(row)
     raise HTTPException(401, "Utilisateur non identifié")
 
 

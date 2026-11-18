@@ -28,7 +28,7 @@ SQL = BACKEND / "sql"
 CREATION = ["01_schema.sql", "02_donnees_exemple.sql", "04_sprint2.sql", "05_sprint3.sql",
             "06_sprint3_eleves.sql"]
 MIGRATIONS = ["07_pont_node.sql", "08_parcours_complet.sql", "09_comptes_mobile_money.sql",
-              "10_portefeuille_fin_de_course.sql"]
+              "10_portefeuille_fin_de_course.sql", "11_administration.sql"]
 
 
 def conninfo(dbname: str) -> str:

@@ -95,9 +95,28 @@ Il se termine par « MboaRide tourne. ».
 ### 4. Ouvrir la console web
 
 ```powershell
+Start-Process http://localhost:8000/admin    # console d'administration de MboaRide
 Start-Process http://localhost:8000          # console des organisations
 Start-Process http://localhost:8000/docs     # documentation de l'API
 ```
+
+La console d'administration se connecte avec un compte de l'application (même e-mail ou
+téléphone, même mot de passe). Une seule fois, nommer le premier administrateur :
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\creer_admin.py votre.adresse@gmail.com
+```
+
+Les autres membres de l'équipe se nomment ensuite depuis la console (menu « Équipe
+MboaRide »), avec l'un des trois rôles :
+
+| Rôle | Accès |
+|---|---|
+| Super admin | tout, y compris l'équipe |
+| Support | utilisateurs (suspension), agréments (pièces à valider), trajets et courses |
+| Finance | paiements (remboursement, export CSV), finances |
+
+Chaque action est tracée dans le « Journal d'audit ».
 
 ### 5. Lancer l'application
 
