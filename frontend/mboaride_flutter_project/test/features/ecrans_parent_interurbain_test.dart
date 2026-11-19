@@ -7,6 +7,8 @@ import 'package:mboaride/features/children/presentation/child_journal_screen.dar
 import 'package:mboaride/features/children/presentation/children_screen.dart';
 import 'package:mboaride/features/intercity/data/intercity_repository.dart';
 import 'package:mboaride/features/intercity/presentation/intercity_screen.dart';
+import 'package:mboaride/features/ride_request/data/place_search_service.dart';
+import 'package:mboaride/features/ride_request/domain/ride_request.dart' show Place;
 
 Widget _app(Widget home) => MaterialApp(theme: buildMboaTheme(), home: home);
 
@@ -94,4 +96,52 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('2 places confirmées'), findsOneWidget);
   });
+
+  group('point de départ choisi par le voyageur (US22)', () {
+    Future<void> openSheet(WidgetTester tester) async {
+      await tester.pumpWidget(
+        _app(IntercityScreen(repository: FakeIntercityRepository(), placeSearch: _FakePlaces())),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Douala → Yaoundé').first);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> pickPlace(WidgetTester tester, String name) async {
+      await tester.tap(find.byKey(const ValueKey('autre-point-de-depart')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'lieu');
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(name));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('un point libre accepté par le conducteur se réserve', (tester) async {
+      await openSheet(tester);
+      await pickPlace(tester, 'Bonamoussadi, carrefour Shell');
+      expect(find.byKey(const ValueKey('verification-depart')), findsOneWidget);
+      expect(find.textContaining('Le conducteur vous prend vers 06:25'), findsOneWidget);
+
+      await tester.tap(find.textContaining('Réserver ·'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('montée à Bonamoussadi, carrefour Shell à 06:25'), findsOneWidget);
+    });
+
+    testWidgets('un point trop loin du conducteur ne peut pas être réservé', (tester) async {
+      await openSheet(tester);
+      await pickPlace(tester, 'Bafoussam');
+      expect(find.textContaining('de détour au conducteur'), findsOneWidget);
+      final bouton = tester.widget<FilledButton>(find.ancestor(of: find.textContaining('Réserver ·'), matching: find.byType(FilledButton)));
+      expect(bouton.onPressed, isNull);
+    });
+  });
+}
+
+class _FakePlaces implements PlaceSearchService {
+  @override
+  Future<List<Place>> search(String query) async => const [
+    Place(name: 'Bonamoussadi, carrefour Shell', lat: 4.085, lng: 9.735),
+    Place(name: 'Bafoussam', lat: 5.4737, lng: 10.4179),
+  ];
 }

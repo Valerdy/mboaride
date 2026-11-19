@@ -11,10 +11,12 @@ import 'place_search_service.dart';
 /// Service public gratuit : usage léger uniquement (1 requête par seconde au maximum).
 /// Pour la soutenance, prévoyez une liste de lieux locale en secours.
 class NominatimPlaceSearch implements PlaceSearchService {
-  NominatimPlaceSearch({http.Client? client})
+  /// [nationwide] : toute la route d'un voyage interurbain, pas seulement Douala.
+  NominatimPlaceSearch({http.Client? client, this.nationwide = false})
     : _client = client ?? http.Client();
 
   final http.Client _client;
+  final bool nationwide;
 
   @override
   Future<List<Place>> search(String query) async {
@@ -26,10 +28,12 @@ class NominatimPlaceSearch implements PlaceSearchService {
       'format': 'jsonv2',
       'limit': '6',
       'countrycodes': 'cm',
-      // gauche, haut, droite, bas
-      'viewbox':
-          '${AppConfig.minLng},${AppConfig.maxLat},${AppConfig.maxLng},${AppConfig.minLat}',
-      'bounded': '1',
+      if (!nationwide) ...{
+        // gauche, haut, droite, bas
+        'viewbox':
+            '${AppConfig.minLng},${AppConfig.maxLat},${AppConfig.maxLng},${AppConfig.minLat}',
+        'bounded': '1',
+      },
     });
 
     try {

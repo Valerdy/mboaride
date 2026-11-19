@@ -121,7 +121,7 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 12),
                   child: Text(
-                    'Aucun lieu trouvé à Douala. Essayez un autre nom.',
+                    'Aucun lieu trouvé. Essayez un autre nom.',
                   ),
                 ),
               Expanded(
