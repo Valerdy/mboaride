@@ -125,6 +125,12 @@ Console web : http://localhost:8000 (documentation de l'API : http://localhost:8
    « Signaler un retard » et « Annuler le trajet » préviennent le client : la cloche de son
    application affiche la notification (elle interroge l'API toutes les 20 s).
 
+**Enfants et organisations**
+
+Voir [scenario-enfants-organisations.md](scenario-enfants-organisations.md) : « Mes organisations »
+(rejoindre une école avec son code), « Mes enfants » (compte élève, voyage à son nom, journal) et les
+invitations d'une entreprise.
+
 **Voyage interurbain**
 
 Menu ☰ > « Voyage Douala → Yaoundé » : choisir la date, le voyage, puis le point de montée.

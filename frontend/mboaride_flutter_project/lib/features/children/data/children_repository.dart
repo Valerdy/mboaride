@@ -1,4 +1,5 @@
 import '../../../core/api_client.dart';
+import '../../organisations/domain/organisation.dart' show School;
 import '../domain/child.dart';
 
 /// Comptes élèves et journal des trajets (US17, US19).
@@ -14,6 +15,13 @@ abstract class ChildrenRepository {
   Future<Child> setAuthorization(int childId, bool authorized);
 
   Future<List<ChildEvent>> journal(int childId);
+
+  /// Écoles et campus connus, pour rattacher l'élève à son établissement.
+  Future<List<School>> schools();
+
+  /// Démonstration (US19 est simulée) : produit les notifications de départ et d'arrivée du dernier
+  /// voyage de l'élève. Échoue s'il n'a aucune réservation confirmée.
+  Future<void> simulateRide(int childId);
 }
 
 class ApiChildrenRepository implements ChildrenRepository {
@@ -50,6 +58,17 @@ class ApiChildrenRepository implements ChildrenRepository {
       {'active': authorized},
     );
     return Child.fromJson(body as Map<String, dynamic>);
+  }
+
+  @override
+  Future<void> simulateRide(int childId) async {
+    await _client.post('/api/moi/eleves/$childId/simuler-trajet');
+  }
+
+  @override
+  Future<List<School>> schools() async {
+    final body = await _client.get('/api/etablissements') as List<dynamic>;
+    return body.map((s) => School.fromJson(s as Map<String, dynamic>)).toList(growable: false);
   }
 
   @override
@@ -126,6 +145,18 @@ class FakeChildrenRepository implements ChildrenRepository {
     _children[index] = updated;
     return updated;
   }
+
+  @override
+  Future<void> simulateRide(int childId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    if (childId != 1) throw ApiException('Aucune réservation confirmée pour cet élève');
+  }
+
+  @override
+  Future<List<School>> schools() async => const [
+    School(id: 3, name: 'Collège B (Bonapriso)'),
+    School(id: 4, name: 'Campus C'),
+  ];
 
   @override
   Future<List<ChildEvent>> journal(int childId) async {

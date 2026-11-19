@@ -4,6 +4,7 @@ import 'features/children/data/children_repository.dart';
 import 'features/driver/data/driver_repository.dart';
 import 'features/intercity/data/intercity_repository.dart';
 import 'features/notifications/notifications.dart';
+import 'features/organisations/data/organisations_repository.dart';
 import 'features/offers/data/offers_repository.dart';
 import 'features/payment/data/payment_repository.dart';
 import 'features/preferences/data/preferences_repository.dart';
@@ -26,6 +27,8 @@ class AppServices {
       _fake ? FakePreferencesRepository() : ApiPreferencesRepository(client: client);
   static final ChildrenRepository children =
       _fake ? FakeChildrenRepository() : ApiChildrenRepository(client: client);
+  static final OrganisationsRepository organisations =
+      _fake ? FakeOrganisationsRepository() : ApiOrganisationsRepository(client: client);
   static final IntercityRepository intercity =
       _fake ? FakeIntercityRepository() : ApiIntercityRepository(client: client);
   static final PaymentRepository payments =

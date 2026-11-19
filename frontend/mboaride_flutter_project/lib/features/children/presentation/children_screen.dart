@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../core/api_client.dart';
 import '../../../core/mboa_theme.dart';
+import '../../intercity/data/intercity_repository.dart';
+import '../../intercity/presentation/intercity_screen.dart';
+import '../../organisations/domain/organisation.dart' show School;
 import '../data/children_repository.dart';
 import '../domain/child.dart';
 import 'child_journal_screen.dart';
@@ -9,9 +12,12 @@ import 'child_journal_screen.dart';
 /// US17 · Créer un compte élève pour mes enfants de 12 ans et plus et
 /// autoriser leurs trajets, pour garder le contrôle de qui les transporte.
 class ChildrenScreen extends StatefulWidget {
-  const ChildrenScreen({super.key, required this.repository, this.schoolId});
+  const ChildrenScreen({super.key, required this.repository, this.schoolId, this.intercityRepository});
 
   final ChildrenRepository repository;
+
+  /// Voyages interurbains : permet de réserver une place au nom d'un enfant autorisé.
+  final IntercityRepository? intercityRepository;
 
   /// Établissement rattaché par défaut aux nouveaux comptes élèves, quand il
   /// est connu (école partenaire de MboaRide).
@@ -96,6 +102,16 @@ class _ChildrenScreenState extends State<ChildrenScreen> {
     }
   }
 
+  void _book(Child child) {
+    final repository = widget.intercityRepository;
+    if (repository == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => IntercityScreen(repository: repository, childId: child.id, childName: child.firstName),
+      ),
+    );
+  }
+
   void _openJournal(Child child) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -148,6 +164,7 @@ class _ChildrenScreenState extends State<ChildrenScreen> {
                     busy: _busyChild == child.id,
                     onToggle: (value) => _toggle(child, value),
                     onOpenJournal: () => _openJournal(child),
+                    onBook: widget.intercityRepository == null || !child.authorized ? null : () => _book(child),
                   ),
                 ),
               ],
@@ -162,12 +179,16 @@ class _ChildCard extends StatelessWidget {
     required this.busy,
     required this.onToggle,
     required this.onOpenJournal,
+    this.onBook,
   });
 
   final Child child;
   final bool busy;
   final ValueChanged<bool> onToggle;
   final VoidCallback onOpenJournal;
+
+  /// Réserver un voyage au nom de l'enfant ; absent tant que l'autorisation parentale est retirée.
+  final VoidCallback? onBook;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -232,13 +253,22 @@ class _ChildCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: onOpenJournal,
-            icon: const Icon(Icons.notifications_active_outlined, size: 18),
-            label: const Text('Voir le journal des trajets'),
-          ),
+        Wrap(
+          spacing: 4,
+          children: [
+            if (onBook != null)
+              TextButton.icon(
+                key: ValueKey('reserver-${child.id}'),
+                onPressed: onBook,
+                icon: const Icon(Icons.directions_car_outlined, size: 18),
+                label: Text('Réserver un voyage pour ${child.firstName}'),
+              ),
+            TextButton.icon(
+              onPressed: onOpenJournal,
+              icon: const Icon(Icons.notifications_active_outlined, size: 18),
+              label: const Text('Voir le journal des trajets'),
+            ),
+          ],
         ),
       ],
     ),
@@ -262,6 +292,17 @@ class _AddChildSheetState extends State<_AddChildSheet> {
   final _age = TextEditingController();
   bool _saving = false;
   String? _error;
+  List<School> _schools = const [];
+  int? _schoolId;
+
+  @override
+  void initState() {
+    super.initState();
+    _schoolId = widget.schoolId;
+    widget.repository.schools().then((list) {
+      if (mounted) setState(() => _schools = list);
+    }).catchError((_) {});     // le choix de l'établissement est facultatif
+  }
 
   @override
   void dispose() {
@@ -287,7 +328,7 @@ class _AddChildSheetState extends State<_AddChildSheet> {
       final child = await widget.repository.addChild(
         firstName: _firstName.text.trim(),
         age: int.parse(_age.text.trim()),
-        schoolId: widget.schoolId,
+        schoolId: _schoolId,
       );
       if (!mounted) return;
       Navigator.of(context).pop(child);
@@ -338,6 +379,20 @@ class _AddChildSheetState extends State<_AddChildSheet> {
             helperText: 'De 12 à 17 ans',
           ),
         ),
+        if (_schools.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int?>(
+            key: const ValueKey('etablissement-eleve'),
+            isExpanded: true,
+            initialValue: _schoolId,
+            decoration: const InputDecoration(labelText: 'Établissement', helperText: 'Facultatif'),
+            items: [
+              const DropdownMenuItem<int?>(value: null, child: Text('Non renseigné')),
+              for (final school in _schools) DropdownMenuItem<int?>(value: school.id, child: Text(school.name)),
+            ],
+            onChanged: (value) => setState(() => _schoolId = value),
+          ),
+        ],
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(top: 10),

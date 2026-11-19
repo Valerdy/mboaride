@@ -54,6 +54,17 @@ class _ChildJournalScreenState extends State<ChildJournalScreen> {
     }
   }
 
+  Future<void> _simulate() async {
+    try {
+      await widget.repository.simulateRide(widget.child.id);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      return;
+    }
+    _load();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(widget.child.firstName)),
@@ -88,6 +99,13 @@ class _ChildJournalScreenState extends State<ChildJournalScreen> {
                     style: TextStyle(color: MboaColors.mutedText),
                   ),
                 ..._events.map((event) => _EventTile(event: event)),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  key: const ValueKey('simuler-trajet'),
+                  onPressed: _simulate,
+                  icon: const Icon(Icons.play_circle_outline),
+                  label: const Text('Simuler un trajet (démonstration)'),
+                ),
               ],
             ),
     ),

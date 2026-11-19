@@ -179,6 +179,14 @@ Dans une fenêtre `flutter run` : `r` recharge l'application, `R` la redémarre,
 
 ---
 
+## Essayer les enfants et les organisations
+
+Un parcours en 20 étapes (rejoindre l'école avec un code, créer un compte élève, lui réserver un
+voyage, suivre son journal, inviter un employé) est décrit dans
+[scenario-enfants-organisations.md](scenario-enfants-organisations.md).
+
+---
+
 ## Lancer les tests
 
 ```powershell

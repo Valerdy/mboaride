@@ -12,6 +12,7 @@ import '../features/driver/presentation/vehicle_screen.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
 import '../features/payment/presentation/my_trips_screen.dart';
 import '../features/notifications/notifications.dart';
+import '../features/organisations/presentation/organisations_screen.dart';
 import '../features/preferences/presentation/preferences_screen.dart';
 import '../features/wallet/wallet_screen.dart';
 import '../services/auth_service.dart';
@@ -212,10 +213,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 10),
                   _buildServiceTile(
+                    icon: Icons.business_rounded,
+                    title: 'Mes organisations',
+                    subtitle: 'Mon entreprise, l\'école de mes enfants : mon cercle de confiance',
+                    onTap: () => _open(OrganisationsScreen(repository: AppServices.organisations)),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildServiceTile(
                     icon: Icons.school_rounded,
                     title: 'Mes enfants (trajets scolaires)',
                     subtitle: 'Élèves autorisés et alertes départ et arrivée',
-                    onTap: () => _open(ChildrenScreen(repository: AppServices.children)),
+                    onTap: () => _open(ChildrenScreen(
+                      repository: AppServices.children,
+                      intercityRepository: AppServices.intercity,
+                    )),
                   ),
                   const SizedBox(height: 10),
                   _buildServiceTile(
