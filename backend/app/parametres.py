@@ -16,6 +16,11 @@ DEFINITIONS: dict[str, dict] = {
     "prix_carburant_fcfa_l": {
         "groupe": "Tarifs", "libelle": "Prix du carburant", "unite": "FCFA / litre", "defaut": 840,
         "min": 300, "max": 2000, "aide": "Prix du super à la pompe, base du partage des frais."},
+    "coefficient_urbain_pct": {
+        "groupe": "Tarifs", "libelle": "Coefficient des trajets en ville", "unite": "% du carburant", "defaut": 180,
+        "min": 100, "max": 500,
+        "aide": "Coût partagé d'un trajet en ville : le carburant multiplié par ce coefficient (usure et entretien "
+                "du véhicule). 180 % : Ndokoti → Yassa à 3 places coûte 400 FCFA par place. Sans effet en interurbain."},
     "commission_pct": {
         "groupe": "Tarifs", "libelle": "Commission MboaRide", "unite": "% du prix", "defaut": 10,
         "min": 0, "max": 30, "aide": "Comprise dans le prix payé, gardée au versement de chaque course."},

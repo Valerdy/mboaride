@@ -20,7 +20,7 @@ def test_prix_identique_au_devis_des_agents():
     # le conducteur et toutes ses places, donc le même prix pour tous les passagers.
     attendu = quote(moteur.POLITIQUE, shared_distance_m=det.shared_distance_m,
                     detour_m=det.detour_m, trip_distance_m=det.trip_distance_m,
-                    direct_distance_m=det.direct_distance_m,
+                    direct_distance_m=det.direct_distance_m, urban=True,
                     consumption_l_per_100km=7.5, tolls=0, seats_total=3, seats_booked=0,
                     seats_requested=1, min_price=0, with_commission=False)
     detail = moteur.detail_prix(t, d, 0)

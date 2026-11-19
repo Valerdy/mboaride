@@ -13,6 +13,11 @@ export '../../payment/domain/payment.dart' show CourseStatus;
 /// Prix officiel du super depuis février 2024 (FCFA par litre).
 const int fuelPricePerLitre = 840;
 
+/// Trajets en ville : le coût partagé est le carburant multiplié par ce coefficient (usure du véhicule).
+/// Valeur par défaut du réglage « Coefficient des trajets en ville » de la console : Ndokoti → Yassa à
+/// 3 places coûte 400 FCFA par place. Sans effet en interurbain.
+const double urbanCostMultiplier = 1.8;
+
 /// Commission MboaRide, prélevée sur tous les trajets.
 const double commissionRate = 0.10;
 
@@ -410,6 +415,7 @@ class PriceEstimate {
     required this.tollsFcfa,
     required this.withCommission,
     required this.perPassengerByOccupancy,
+    this.usageFcfa = 0,
   });
 
   /// Le carburant du trajet (et les péages) est partagé à parts égales entre le conducteur et
@@ -421,13 +427,18 @@ class PriceEstimate {
     required int seats,
     int tollsFcfa = 0,
     bool withCommission = false,
+    bool urban = false,
   }) {
-    final fuel = roundHalfUp(distanceKm * consumptionL100 / 100 * fuelPricePerLitre);
-    final price = _withCommission(roundHalfUp((fuel + tollsFcfa) / (1 + seats)), withCommission);
+    final rawFuel = distanceKm * consumptionL100 / 100 * fuelPricePerLitre;
+    final fuel = roundHalfUp(rawFuel);
+    // En ville, l'usure du véhicule s'ajoute au carburant.
+    final usage = urban ? roundHalfUp(rawFuel * urbanCostMultiplier) - fuel : 0;
+    final price = _withCommission(roundHalfUp((fuel + usage + tollsFcfa) / (1 + seats)), withCommission);
     final prices = <int>[for (var passengers = 1; passengers <= seats; passengers++) price];
     return PriceEstimate._(
       distanceKm: distanceKm,
       fuelFcfa: fuel,
+      usageFcfa: usage,
       tollsFcfa: tollsFcfa,
       withCommission: withCommission,
       perPassengerByOccupancy: prices,
@@ -438,6 +449,9 @@ class PriceEstimate {
 
   final double distanceKm;
   final int fuelFcfa;
+
+  /// Usure et entretien du véhicule (trajets en ville) : s'ajoute au carburant.
+  final int usageFcfa;
   final int tollsFcfa;
   final bool withCommission;
 

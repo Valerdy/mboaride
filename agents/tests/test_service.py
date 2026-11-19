@@ -2,6 +2,7 @@
 import asyncio
 import json
 from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -213,7 +214,7 @@ def expected_price(offer, policy, origin=None):
     return quote(policy, shared_distance_m=offer["shared_distance_m"], detour_m=offer["detour_m"],
                  direct_distance_m=direct_route_m(offer, origin) if origin else None,
                  consumption_l_per_100km=8.0, tolls=0, seats_total=3, seats_booked=0, seats_requested=1,
-                 min_price=0, with_commission=False).price
+                 min_price=0, with_commission=False, urban=True).price
 
 
 def test_service_applies_the_product_pricing_rule_by_default(client):
@@ -247,7 +248,7 @@ def test_old_pricing_rule_is_still_available():
 
 def test_sr51_rule_is_still_selectable():
     c = TestClient(create_app(pricing=replace(PRODUCT_POLICY, cost_basis=SHARED_LEG_PLUS_DETOUR,
-                                              divisor_rule=OCCUPANTS)))
+                                              divisor_rule=OCCUPANTS, urban_cost_multiplier=Fraction(1))))
     c.post("/organizations", json={"organization_id": "entreprise-test", "members": ["passenger:p042"]})
     for d in (D07, D03):
         c.post("/drivers", json=d)

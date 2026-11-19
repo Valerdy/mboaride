@@ -81,6 +81,10 @@ class PricingPolicy:
     commission_on_every_trip: bool = False
     rounding_step: int = 1
     min_fare: int = 0
+    # Trajets en ville : le coût partagé est le carburant multiplié par ce coefficient, qui couvre
+    # l'usure et l'entretien du véhicule (le carburant seul donne des prix trop bas pour un trajet
+    # court). Les péages et les trajets interurbains ne sont pas concernés. 1 : carburant seul.
+    urban_cost_multiplier: Fraction = Fraction(1)
 
     def __post_init__(self):
         if self.divisor_rule not in (OFFERED_SEATS, OCCUPANTS):
@@ -89,6 +93,8 @@ class PricingPolicy:
             raise ValueError(f"Base de coût inconnue : {self.cost_basis}")
         if self.rounding_step < 1:
             raise ValueError("Le pas d'arrondi doit être d'au moins 1 FCFA")
+        if self.urban_cost_multiplier < 1:
+            raise ValueError("Le coefficient urbain ne peut pas être inférieur à 1")
 
 
 @dataclass(frozen=True)
@@ -98,6 +104,7 @@ class Quote:
     tolls: int
     divisor: int
     commission: int
+    usage_cost: int = 0     # part de fuel_cost due au coefficient urbain (usure du véhicule)
 
     def breakdown(self) -> dict[str, int]:
         """Champ `price_breakdown` d'un message PROPOSAL."""
@@ -108,7 +115,8 @@ class Quote:
 def quote(policy: PricingPolicy, *, shared_distance_m: int, consumption_l_per_100km: float,
           tolls: int, seats_total: int, seats_booked: int, seats_requested: int,
           min_price: int, with_commission: bool, detour_m: int | None = None,
-          trip_distance_m: int | None = None, direct_distance_m: int | None = None) -> Quote:
+          trip_distance_m: int | None = None, direct_distance_m: int | None = None,
+          urban: bool = False) -> Quote:
     """Prix proposé à un passager.
 
     `detour_m` est le détour imposé par ce passager et `trip_distance_m` le trajet
@@ -127,7 +135,11 @@ def quote(policy: PricingPolicy, *, shared_distance_m: int, consumption_l_per_10
         base_m = direct_distance_m
     fuel_exact = (Fraction(base_m, 1000) * Fraction(str(consumption_l_per_100km)) / 100
                   * policy.fuel_price_per_l)
+    fuel_pure = round_half_up(fuel_exact)
+    if urban:
+        fuel_exact *= policy.urban_cost_multiplier
     fuel_cost = round_half_up(fuel_exact)
+    usage_cost = fuel_cost - fuel_pure
     if policy.divisor_rule == OFFERED_SEATS:
         divisor = 1 + seats_total
     else:
@@ -140,10 +152,11 @@ def quote(policy: PricingPolicy, *, shared_distance_m: int, consumption_l_per_10
         price = max(math.ceil(Fraction(share) / (1 - policy.commission_rate) / step) * step,
                     math.ceil(Fraction(policy.min_fare, step)) * step)
         commission = math.floor(price * policy.commission_rate)
-        return Quote(price=price, fuel_cost=fuel_cost, tolls=tolls, divisor=divisor, commission=commission)
+        return Quote(price=price, fuel_cost=fuel_cost, tolls=tolls, divisor=divisor, commission=commission,
+                     usage_cost=usage_cost)
     commission = round_half_up(share * policy.commission_rate) if with_commission else 0
     return Quote(price=share + commission, fuel_cost=fuel_cost, tolls=tolls, divisor=divisor,
-                 commission=commission)
+                 commission=commission, usage_cost=usage_cost)
 
 
 # Règle du produit : même somme pour tous les passagers d'un équipage (trajet direct du
@@ -155,5 +168,8 @@ def quote(policy: PricingPolicy, *, shared_distance_m: int, consumption_l_per_10
 # Tarif (novembre 2026) : MboaRide prélève 10 % sur chaque trajet, quel que soit le cercle ;
 # le prix est arrondi aux 25 FCFA supérieurs (la monnaie rendue en pièces de 25) et un trajet
 # coûte au moins 100 FCFA.
+# Ville : coefficient de 1,8 sur le carburant (calé sur Ndokoti -> Yassa, 11,9 km en voiture à
+# 8 L/100 km et 3 places : 400 FCFA par place au lieu de 225).
 PRODUCT_POLICY = PricingPolicy(divisor_rule=OFFERED_SEATS, cost_basis=DRIVER_ROUTE,
-                               commission_on_every_trip=True, rounding_step=25, min_fare=100)
+                               commission_on_every_trip=True, rounding_step=25, min_fare=100,
+                               urban_cost_multiplier=Fraction(9, 5))

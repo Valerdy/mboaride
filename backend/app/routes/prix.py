@@ -36,7 +36,8 @@ def _formule() -> str:
     """La règle de prix, avec les réglages courants de la console."""
     p = parametres.valeurs()
     pct = p["commission_pct"]
-    return ("(trajet commun + détour) × consommation / 100 × prix du litre (+ péage) ÷ occupants à bord, "
+    return ("trajet du conducteur × consommation / 100 × prix du litre (× coefficient de "
+            f"{p['coefficient_urbain_pct']} % en ville, pour l'usure du véhicule ; + péage) ÷ les places de l'équipage, "
             f"÷ {moteur.fr(1 - pct / 100)} pour la commission MboaRide de {pct} %, arrondi aux "
             f"{p['arrondi_fcfa']} FCFA supérieurs ({p['prix_minimum_fcfa']} FCFA au moins)")
 

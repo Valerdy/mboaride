@@ -1323,7 +1323,7 @@ class Simulation(BaseModel):
 
 @router.post("/parametres/simulation")
 def simuler(body: Simulation, a: dict = Depends(admin_courant)) -> dict:
-    """Prix d'un trajet type avec les réglages actuels et avec ceux proposés, avant d'enregistrer."""
+    """Prix d'un trajet type en ville avec les réglages actuels et avec ceux proposés, avant d'enregistrer."""
     _controler(body.valeurs)
     from dataclasses import replace
     from fractions import Fraction
@@ -1334,12 +1334,13 @@ def simuler(body: Simulation, a: dict = Depends(admin_courant)) -> dict:
     def devis(v: dict) -> dict:
         pol = replace(moteur.POLITIQUE, fuel_price_per_l=v["prix_carburant_fcfa_l"],
                       commission_rate=Fraction(v["commission_pct"], 100), rounding_step=v["arrondi_fcfa"],
-                      min_fare=v["prix_minimum_fcfa"])
+                      min_fare=v["prix_minimum_fcfa"],
+                      urban_cost_multiplier=Fraction(v["coefficient_urbain_pct"], 100))
         q = quote(pol, shared_distance_m=round(body.distance_km * 1000), detour_m=0,
                   trip_distance_m=round(body.distance_km * 1000), direct_distance_m=round(body.distance_km * 1000),
                   consumption_l_per_100km=body.conso_l_100km,
                   tolls=0, seats_total=body.passagers, seats_booked=0, seats_requested=1, min_price=0,
-                  with_commission=True)
+                  with_commission=True, urban=True)
         return {"prix_fcfa": q.price, "commission_fcfa": q.commission, "part_conducteur_fcfa": q.price - q.commission,
                 "carburant_fcfa": q.fuel_cost}
 
