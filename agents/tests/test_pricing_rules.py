@@ -7,6 +7,8 @@ produit : tronçon commun plus le détour imposé, divisé par les occupants à 
 
 from __future__ import annotations
 
+from fractions import Fraction
+
 import pytest
 
 from mboaride_agents.pricing import (DRIVER_ROUTE, OCCUPANTS, OFFERED_SEATS, PRODUCT_POLICY, SHARED_LEG,
@@ -67,6 +69,26 @@ def test_la_regle_du_produit_fait_payer_la_meme_somme_a_tous_les_passagers():
     assert len(prix) == 1
     (somme, _, diviseur), = prix
     assert diviseur == 4 and somme % 25 == 0                  # conducteur + 3 places, pièces de 25 FCFA
+
+
+def test_en_ville_le_coefficient_porte_ndokoti_yassa_a_400_fcfa_la_place():
+    """Exemple de référence : 11,9 km, 8 L/100 km, 3 places. Le carburant seul donnait 225 FCFA."""
+    cas = dict(shared_distance_m=11_900, consumption_l_per_100km=8.0, tolls=0, seats_total=3, seats_booked=0,
+               seats_requested=1, min_price=0, with_commission=True, direct_distance_m=11_900)
+    assert quote(PRODUCT_POLICY, **cas).price == 225
+    ville = quote(PRODUCT_POLICY, **cas, urban=True)
+    assert ville.price == 400 and ville.commission == 40
+    assert (ville.fuel_cost, ville.usage_cost) == (1439, 639)      # carburant 800 + usure 639
+    # Un trajet plus long coûte proportionnellement plus, et le péage n'est pas multiplié.
+    long = quote(PRODUCT_POLICY, **{**cas, "direct_distance_m": 23_800, "shared_distance_m": 23_800}, urban=True)
+    assert 750 <= long.price <= 825
+    avec_peage = quote(PRODUCT_POLICY, **{**cas, "tolls": 1000}, urban=True)
+    assert avec_peage.fuel_cost == ville.fuel_cost and avec_peage.tolls == 1000
+
+
+def test_le_coefficient_urbain_ne_peut_pas_etre_inferieur_a_1():
+    with pytest.raises(ValueError, match="coefficient urbain"):
+        PricingPolicy(urban_cost_multiplier=Fraction(1, 2))
 
 
 def test_la_regle_du_produit_partage_le_trajet_direct_du_conducteur():

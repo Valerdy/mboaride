@@ -128,3 +128,45 @@ def test_plus_de_places_que_l_offre_n_est_jamais_confirmable(client, equipage): 
         "depart": LOGPOM, "arrivee": BONANJO, "arrivee_au_plus_tot": "07:15", "arrivee_au_plus_tard": "08:00",
         "date_trajet": h["jour"], "prix_max_fcfa": 2000, "nb_places": 0})
     assert nulle.status_code == 422
+
+
+# --- Tarif en ville : Ndokoti → Yassa, trois places ----------------------------------------------
+
+NDOKOTI = {"libelle": "Ndokoti", "lat": 4.0440, "lon": 9.7370}
+YASSA = {"libelle": "Yassa", "lat": 4.0020, "lon": 9.8030}
+
+
+def test_le_prix_de_reference_ndokoti_yassa_est_de_400_fcfa_la_place(client, sql, equipage):  # noqa: F811
+    from app import moteur
+    from app.moteur import Demande, Trajet
+    from mboaride_agents.routing import Point
+
+    km = moteur.distance_km(NDOKOTI["lat"], NDOKOTI["lon"], YASSA["lat"], YASSA["lon"])
+    assert 11.0 <= km <= 13.0                                   # le trajet de référence : environ 11,9 km
+    trajet = Trajet(origine=Point(NDOKOTI["lat"], NDOKOTI["lon"]), destination=Point(YASSA["lat"], YASSA["lon"]),
+                    depart_min=420, places=3, detour_max_m=3000, conso_l100=8.0, confort=frozenset(),
+                    peage_fcfa=0, interurbain=False)
+    demande = Demande(Point(NDOKOTI["lat"], NDOKOTI["lon"]), Point(YASSA["lat"], YASSA["lon"]), 0, 1439, frozenset())
+    d = moteur.detail_prix(trajet, demande, 2)
+    assert 375 <= d.prix_fcfa <= 425 and d.prix_fcfa % 25 == 0
+    assert d.devis.usage_cost > 0
+    assert [l["libelle"] for l in d.lignes()][1].startswith("Usure et entretien")
+
+
+def test_le_coefficient_urbain_se_regle_dans_la_console_et_ne_touche_pas_l_interurbain(client, sql, equipage):  # noqa: F811
+    from app import moteur, parametres
+    from app.moteur import Demande, Trajet
+    from mboaride_agents.routing import Point
+
+    ville = Trajet(Point(4.088, 9.765), Point(4.042, 9.689), 410, 3, 3000, 8.0, frozenset(), 0, False)
+    car = Trajet(Point(4.050, 9.698), Point(3.8667, 11.5167), 840, 4, 8000, 8.0, frozenset(), 1000, True)
+    dv = Demande(Point(4.088, 9.765), Point(4.042, 9.689), 0, 1439, frozenset())
+    di = Demande(Point(4.050, 9.698), Point(3.8667, 11.5167), 0, 1439, frozenset())
+    avant_ville, avant_car = moteur.detail_prix(ville, dv, 2).prix_fcfa, moteur.detail_prix(car, di, 2).prix_fcfa
+
+    sql("INSERT INTO parametre (cle, valeur) VALUES ('coefficient_urbain_pct', 100) ON CONFLICT (cle) DO UPDATE "
+        "SET valeur = 100")
+    parametres.invalider()
+    sans = moteur.detail_prix(ville, dv, 2)
+    assert sans.devis.usage_cost == 0 and sans.prix_fcfa < avant_ville
+    assert moteur.detail_prix(car, di, 2).prix_fcfa == avant_car          # l'interurbain ne change pas

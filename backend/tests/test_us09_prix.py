@@ -28,7 +28,8 @@ def test_prix_detaille_identique_au_moteur(client, sql):
     assert e["part_conducteur_fcfa"] == e["prix_fcfa"] - e["commission_fcfa"]
     libelles = [l["libelle"] for l in e["detail"]]
     assert libelles[0].startswith("Carburant du trajet du conducteur")
-    assert "parts égales entre les 4 personnes de l'équipage" in libelles[1]   # conducteur + 3 places
+    assert libelles[1].startswith("Usure et entretien du véhicule (trajet en ville : +80 %")
+    assert "parts égales entre les 4 personnes de l'équipage" in libelles[2]   # conducteur + 3 places
     assert e["prix_par_place_fcfa"] == e["prix_fcfa"] and e["nb_places"] == 1
     assert e["detail"][-1]["montant_fcfa"] == e["prix_fcfa"]
     assert e["dans_le_budget"] and e["horaires_compatibles"] and e["confirmable"]

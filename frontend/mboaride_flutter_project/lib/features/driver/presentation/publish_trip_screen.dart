@@ -138,6 +138,7 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
       seats: _seats,
       tollsFcfa: interurban ? (int.tryParse(_tolls.text.trim()) ?? 0) : 0,
       withCommission: true,
+      urban: !interurban,
     );
   }
 
@@ -590,7 +591,8 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
         '× $fuelPricePerLitre FCFA = ${fcfa(estimate.fuelFcfa)} de carburant';
     if (!interurban) {
       return InfoBanner(
-        '$fuelLine, partagés à parts égales entre vous et vos $_seats places : '
+        '$fuelLine${estimate.usageFcfa > 0 ? ', plus ${fcfa(estimate.usageFcfa)} d\'usure du véhicule en ville' : ''}, '
+        'partagés à parts égales entre vous et vos $_seats places : '
         'chaque passager paie ${fcfa(estimate.fullPrice)}, quel que soit son point de montée et '
         'l\'ordre des réservations. Le prix comprend la commission MboaRide de 10 % ; vous '
         'recevez le reste dans votre portefeuille à la fin de la course.',

@@ -122,7 +122,7 @@ MboaRide »), avec l'un des trois rôles :
 
 Chaque action est tracée dans le « Journal d'audit », filtrable et exportable en CSV.
 
-Les **paramètres** de la console (prix du carburant, commission, arrondi, prix minimum,
+Les **paramètres** de la console (prix du carburant, coefficient des trajets en ville, commission, arrondi, prix minimum,
 clôture automatique des courses, validité des pièces, validité du code de vérification)
 s'appliquent en quelques secondes, sans relancer. Ils remplacent les variables
 d'environnement correspondantes (`OTP_MINUTES`, `MBOARIDE_VALIDATION_AUTO_HEURES`).

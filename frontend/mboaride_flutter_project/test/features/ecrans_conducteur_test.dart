@@ -54,6 +54,12 @@ void main() {
       // la même somme, voiture pleine ou non.
       expect(urban.perPassengerByOccupancy, [300, 300, 300]);
       expect(urban.alonePrice, urban.fullPrice);
+
+      // En ville, le coefficient de 1,8 (usure du véhicule) porte Ndokoti → Yassa (11,9 km, 3 places) à 400 FCFA.
+      final reference = PriceEstimate.compute(distanceKm: 11.9, consumptionL100: 8, seats: 3, urban: true);
+      expect(reference.fullPrice, 400);
+      expect(reference.fuelFcfa + reference.usageFcfa, 1439);
+      expect(PriceEstimate.compute(distanceKm: 11.9, consumptionL100: 8, seats: 3).fullPrice, 225);
       expect(passengerPrice(40), 100); // jamais moins de 100 FCFA
 
       // Douala-Yaoundé : 240 km, 1 000 FCFA de péage, commission de 10 %.
@@ -173,8 +179,8 @@ void main() {
       final repository = _repo();
       await tester.pumpWidget(_app(PublishTripScreen(repository: repository)));
       await tester.pumpAndSettle();
-      expect(find.text('Environ 300 FCFA par place, le même pour tous'), findsOneWidget);
-      expect(find.textContaining('chaque passager paie 300 FCFA'), findsOneWidget);
+      expect(find.text('Environ 525 FCFA par place, le même pour tous'), findsOneWidget);
+      expect(find.textContaining('chaque passager paie 525 FCFA'), findsOneWidget);
 
       // Sans point de ramassage, la publication est refusée.
       await _tapVisible(tester, find.text('Publier le trajet'));

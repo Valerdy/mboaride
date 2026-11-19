@@ -42,7 +42,8 @@ def politique() -> PricingPolicy:
     p = parametres.valeurs()
     return replace(POLITIQUE, fuel_price_per_l=p["prix_carburant_fcfa_l"],
                    commission_rate=Fraction(p["commission_pct"], 100),
-                   rounding_step=p["arrondi_fcfa"], min_fare=p["prix_minimum_fcfa"])
+                   rounding_step=p["arrondi_fcfa"], min_fare=p["prix_minimum_fcfa"],
+                   urban_cost_multiplier=Fraction(p["coefficient_urbain_pct"], 100))
 ESTIMATEUR_URBAIN = ESTIMATORS["URBAN"]              # 20 km/h, heures de pointe à Douala
 ESTIMATEUR_INTERURBAIN = ESTIMATORS["INTERURBAN"]    # 60 km/h, facteur routier 1,2
 
@@ -151,6 +152,7 @@ class DetailPrix:
     conso_l100: float
     devis: Quote
     base_km: float = 0.0      # distance sur laquelle porte le coût
+    urbain: bool = False      # trajet en ville : le coefficient urbain s'applique
     politique: PricingPolicy = PRODUCT_POLICY
 
     @property
@@ -168,7 +170,11 @@ class DetailPrix:
         quoi = ("du trajet du conducteur" if pol.cost_basis == DRIVER_ROUTE else "du trajet commun et du détour")
         out = [{"libelle": f"Carburant {quoi} ({base} km "
                            f"× {fr(self.conso_l100)} L/100 km × {pol.fuel_price_per_l} FCFA/L)",
-                "montant_fcfa": q.fuel_cost}]
+                "montant_fcfa": q.fuel_cost - q.usage_cost}]
+        if q.usage_cost:
+            out.append({"libelle": f"Usure et entretien du véhicule (trajet en ville : "
+                                   f"+{fr((float(pol.urban_cost_multiplier) - 1) * 100)} % du carburant)",
+                        "montant_fcfa": q.usage_cost})
         if q.tolls:
             out.append({"libelle": "Péage", "montant_fcfa": q.tolls})
         partage = (f"frais partagés à parts égales entre les {q.divisor} personnes de l'équipage "
@@ -195,14 +201,14 @@ def detail_prix(trajet: Trajet, demande: Demande, niveau: int, places_reservees:
     pol = politique()
     q = quote(pol, shared_distance_m=d.shared_distance_m, detour_m=d.detour_m,
               trip_distance_m=d.trip_distance_m, consumption_l_per_100km=trajet.conso_l100,
-              direct_distance_m=d.direct_distance_m,
+              direct_distance_m=d.direct_distance_m, urban=not trajet.interurbain,
               tolls=trajet.peage_fcfa if trajet.interurbain else 0, seats_total=trajet.places,
               seats_booked=places_reservees, seats_requested=1, min_price=trajet.prix_min,
               with_commission=niveau == CERCLE_PUBLIC or trajet.interurbain)
     base_m = (d.direct_distance_m if pol.cost_basis == DRIVER_ROUTE and d.direct_distance_m
               else d.shared_distance_m + d.detour_m)
     return DetailPrix(round(d.shared_distance_m / 1000, 2), trajet.conso_l100, q,
-                      base_km=round(base_m / 1000, 2), politique=pol)
+                      base_km=round(base_m / 1000, 2), politique=pol, urbain=not trajet.interurbain)
 
 
 def horaires(trajet: Trajet, demande: Demande) -> tuple[str, str, float] | None:
