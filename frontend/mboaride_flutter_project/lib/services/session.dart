@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../core/auth_session.dart';
+import '../core/mboa_logo.dart';
 import '../core/mboa_theme.dart';
 import '../core/session_store.dart';
 import 'auth_service.dart';
@@ -139,13 +140,8 @@ class _SessionGateState extends State<SessionGate> {
     final connected = _connected;
     if (connected == null) {
       return const Scaffold(
-        backgroundColor: MboaColors.green,
-        body: Center(
-          child: Text(
-            'MboaRide',
-            style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w700),
-          ),
-        ),
+        backgroundColor: Colors.white,
+        body: Center(child: MboaLogo(full: true, height: 170)),
       );
     }
     final screen = connected ? Session.homeScreen : Session.loginScreen;

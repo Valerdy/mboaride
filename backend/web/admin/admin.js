@@ -214,6 +214,27 @@
     });
   }
 
+  /** Affiche le fichier d'une pièce d'agrément (photo ou PDF). L'accès exige le jeton : on le télécharge puis on l'affiche. */
+  async function voirPiece(uid, type, titre, sousTitre) {
+    const dlg = $('#visionneuse');
+    dlg.innerHTML = `<form method="dialog" novalidate><h2>${esc(titre)}</h2><p>${esc(sousTitre)}</p>
+      <div class="visionneuse-corps" id="piece-corps"><span class="muted">Chargement du fichier...</span></div>
+      <div class="actions"><button type="submit" class="btn ghost">Fermer</button></div></form>`;
+    let url = null;
+    dlg.onclose = () => { if (url) URL.revokeObjectURL(url); };
+    dlg.showModal();
+    try {
+      const r = await api(`/api/admin/agrements/${uid}/documents/${type}/fichier`, { brut: true });
+      const blob = await r.blob();
+      url = URL.createObjectURL(blob);
+      $('#piece-corps').innerHTML = blob.type === 'application/pdf'
+        ? `<iframe src="${url}" title="${esc(titre)}"></iframe>`
+        : `<img src="${url}" alt="${esc(titre)}">`;
+    } catch (e) {
+      $('#piece-corps').innerHTML = `<span class="error" style="padding:20px">${esc(e.message)}</span>`;
+    }
+  }
+
   // --- Graphiques ----------------------------------------------------------------------------------
   let redessins = [];
   let attenteRedessin;
@@ -329,7 +350,7 @@
   // --- Connexion --------------------------------------------------------------------------------------
   function pageConnexion(msg = '') {
     $('#racine').innerHTML = `<div class="login"><div class="login-card">
-      <div class="logo"><span class="logo-mark">${ico('route')}</span><div>MboaRide<small>Console d'administration</small></div></div>
+      <div class="login-logo"><img src="/static/img/logo.png" alt="MboaRide : trouvez, partagez, roulez" width="220" height="138"><small>Console d'administration</small></div>
       <h1>Bienvenue</h1>
       <p>Réservée à l'équipe MboaRide. Connectez-vous avec votre compte de l'application.</p>
       <div class="error" ${msg ? '' : 'hidden'}>${esc(msg)}</div>
@@ -402,14 +423,14 @@
     const nom = `${moi.prenom} ${moi.nom}`;
     $('#racine').innerHTML = `<div class="app">
       <aside class="sidebar">
-        <div class="logo"><span class="logo-mark">${ico('route')}</span><div>MboaRide<small>Console</small></div></div>
+        <div class="logo"><span class="logo-chip"><img src="/static/img/logo_icone.png" alt="" width="46" height="19"></span><div>MboaRide<small>Console</small></div></div>
         <nav class="nav">${nav}</nav>
         <div class="me"><div class="me-id"><span class="avatar">${esc(initiales(nom))}</span><div><b title="${esc(nom)}">${esc(nom)}</b><span class="small muted">${esc(PASTILLES.role[moi.role][1])}</span></div></div>
           <div class="me-actions"><button class="btn ghost sm" id="theme" title="Thème clair ou sombre">${boutonTheme()}</button>
           <button class="btn ghost sm" id="sortir">${ico('out').replace('<svg', '<svg width="15" height="15"')}Sortir</button></div></div>
       </aside>
       <div class="main"><div class="topbar"><button class="btn ghost sm" id="menu" aria-label="Menu">${ico('menu').replace('<svg', '<svg width="18" height="18"')}</button>
-        <div class="logo"><span class="logo-mark" style="width:30px;height:30px">${ico('route')}</span>MboaRide</div></div>
+        <div class="logo"><span class="logo-chip"><img src="/static/img/logo_icone.png" alt="" width="46" height="19"></span>MboaRide</div></div>
         <div id="vue"></div></div>
     </div>`;
     $('#sortir').onclick = () => deconnexion('Vous êtes déconnecté.');
@@ -660,7 +681,8 @@
           <div class="docs">${c.documents.map((d) => `<div class="doc"><div class="row"><b class="small">${esc(d.libelle)}</b>${pastille('piece', d.statut)}</div>
             <span class="small muted">${d.statut === 'valide' ? `Valable jusqu'au ${jour(d.expire_le)}${d.verifie_par ? ` · ${esc(d.verifie_par)}` : ''}`
               : d.statut === 'refuse' ? `Refusée : ${esc(d.motif_refus || '')}` : d.depose_le ? `Déposée le ${jour(d.depose_le)}` : 'Pas encore déposée'}</span>
-            ${d.statut !== 'manquant' ? `<div class="actions">${d.statut !== 'valide' ? `<button class="btn soft sm" data-valider="${d.type}">Valider</button>` : ''}
+            ${d.statut !== 'manquant' && !d.fichier ? '<span class="small fichier-absent">Aucun fichier (pièce déposée avant l\'envoi de fichiers)</span>' : ''}
+            ${d.statut !== 'manquant' ? `<div class="actions">${d.fichier ? `<button class="btn ghost sm" data-voir="${d.type}">Voir le fichier</button>` : ''}${d.statut !== 'valide' ? `<button class="btn soft sm" data-valider="${d.type}">Valider</button>` : ''}
               ${d.statut !== 'refuse' ? `<button class="btn ghost sm" data-refuser="${d.type}">Refuser</button>` : ''}</div>` : ''}</div>`).join('')}</div>
           <div class="row mt">${c.statut_agrement === 'actif' ? '<button class="btn ghost sm" data-suspendre>Suspendre l\'agrément</button>'
             : c.statut_agrement === 'suspendu' ? '<button class="btn soft sm" data-retablir>Rétablir l\'agrément</button>' : ''}</div>
@@ -683,6 +705,10 @@
       };
       const dansUnAn = new Date(); dansUnAn.setFullYear(dansUnAn.getFullYear() + 1);
       const demain = new Date(); demain.setDate(demain.getDate() + 1);
+      $$('[data-voir]', el).forEach((b) => { b.onclick = () => {
+        const c = ligne(b);
+        voirPiece(c.id_utilisateur, b.dataset.voir, c.documents.find((d) => d.type === b.dataset.voir).libelle, `${c.prenom} ${c.nom}`);
+      }; });
       $$('[data-valider]', el).forEach((b) => { b.onclick = () => decider(ligne(b), b.dataset.valider, 'valide',
         [{ nom: 'expire_le', label: "Valable jusqu'au", type: 'date', valeur: iso(dansUnAn), min: iso(demain), requis: true }], 'Valider', 'Valider'); });
       $$('[data-refuser]', el).forEach((b) => { b.onclick = () => decider(ligne(b), b.dataset.refuser, 'refuse',

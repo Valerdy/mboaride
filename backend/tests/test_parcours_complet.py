@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from conftest import PIECE, PNG
 
 from app import config
 from test_pont_node import jeton, porteur, secret_partage, table_users  # noqa: F401  (fixture)
@@ -69,9 +70,9 @@ def test_parcours_conducteur_et_passagere(client, sql, comptes):
     assert client.post("/api/moi/conducteur/trajets", json=trajet, headers=kevin).status_code == 403
 
     for piece in ("piece_identite", "permis", "casier_judiciaire"):
-        a = client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers=kevin).json()
+        a = client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers={**kevin, **PIECE}, content=PNG).json()
     assert a["statut_agrement"] == "en_verification"
-    a = client.post("/api/moi/conducteur/agrement/documents/assurance", headers=kevin).json()
+    a = client.post("/api/moi/conducteur/agrement/documents/assurance", headers={**kevin, **PIECE}, content=PNG).json()
     assert a["statut_agrement"] == "actif"
     assert all(d["statut"] == "valide" for d in a["documents"])
 
@@ -153,7 +154,7 @@ def test_les_regles_du_conducteur_filtrent_les_offres(client, sql, comptes):
     client.post("/api/moi/profil", headers=kevin)
     client.post("/api/moi/profil", headers=lina)
     for piece in ("piece_identite", "permis", "casier_judiciaire", "assurance"):
-        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers=kevin)
+        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers={**kevin, **PIECE}, content=PNG)
     client.put("/api/moi/conducteur/vehicule", headers=kevin, json={
         "marque_modele": "Berline", "immatriculation": "LT 1", "places_passagers": 3, "conso_l_100km": 8})
     id_trajet = client.post("/api/moi/conducteur/trajets", headers=kevin, json={
@@ -181,7 +182,7 @@ def test_un_trajet_regulier_n_est_pas_propose_un_jour_ou_il_ne_roule_pas(client,
     client.post("/api/moi/profil", headers=kevin)
     client.post("/api/moi/profil", headers=lina)
     for piece in ("piece_identite", "permis", "casier_judiciaire", "assurance"):
-        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers=kevin)
+        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers={**kevin, **PIECE}, content=PNG)
     client.put("/api/moi/conducteur/vehicule", headers=kevin, json={
         "marque_modele": "Berline", "immatriculation": "LT 2", "places_passagers": 3, "conso_l_100km": 8})
     id_trajet = client.post("/api/moi/conducteur/trajets", headers=kevin, json={
@@ -221,7 +222,7 @@ def test_passager_d_entreprise_et_chauffeur_sans_organisation(client, sql, secre
     client.post("/api/moi/profil", headers=cindy)
     client.post("/api/moi/profil", headers=kevin)
     for piece in ("piece_identite", "permis", "casier_judiciaire", "assurance"):
-        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers=cindy)
+        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers={**cindy, **PIECE}, content=PNG)
     client.put("/api/moi/conducteur/vehicule", headers=cindy, json={
         "marque_modele": "Mercedes", "immatriculation": "LT 701", "places_passagers": 3, "conso_l_100km": 8})
     trajet = {"depart": "Logpom", "arrivee": "Bonabéri", "heure_depart": "06:45",
@@ -272,7 +273,7 @@ def test_paiement_mobile_money_et_mes_trajets(client, sql, comptes):
     client.post("/api/moi/profil", headers=kevin)
     client.post("/api/moi/profil", headers=lina)
     for piece in ("piece_identite", "permis", "casier_judiciaire", "assurance"):
-        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers=kevin)
+        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers={**kevin, **PIECE}, content=PNG)
     client.put("/api/moi/conducteur/vehicule", headers=kevin, json={
         "marque_modele": "Berline", "immatriculation": "LT 9", "places_passagers": 3, "conso_l_100km": 8})
     id_trajet = client.post("/api/moi/conducteur/trajets", headers=kevin, json={

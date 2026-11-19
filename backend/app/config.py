@@ -35,8 +35,13 @@ SECRET_KEY = (os.environ.get("MBOARIDE_SECRET_KEY")
 # seul un jeton signé par l'API Node est alors accepté.
 DEMO_AUTH = os.environ.get("MBOARIDE_DEMO_AUTH", "1") not in ("0", "false", "False")
 
-# Démonstration locale : une pièce d'agrément déposée est validée aussitôt (aucun agent
-# MboaRide ne vérifie encore les pièces). Désactivé par défaut, comme en production.
+# Dossier où sont rangés les fichiers déposés (pièces d'agrément). Hors du dépôt Git, hors
+# de tout dossier public : seule la console d'administration peut les relire.
+STOCKAGE = Path(os.environ.get("MBOARIDE_STOCKAGE") or RACINE / "stockage")
+TAILLE_MAX_PIECE = 8 * 1024 * 1024      # octets : une photo de téléphone compressée ou un scan
+
+# Démonstration locale : une pièce d'agrément déposée est validée aussitôt, sans passer par
+# la console d'administration. Désactivé par défaut, comme en production.
 AGREMENT_AUTO = os.environ.get("MBOARIDE_AGREMENT_AUTO", "0") in ("1", "true", "True")
 
 # Démonstration locale : le conducteur peut démarrer une course avant son jour, pour

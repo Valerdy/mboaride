@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/api_client.dart';
 import '../../../core/mboa_theme.dart';
@@ -8,9 +9,13 @@ import 'driver_widgets.dart';
 
 /// Agrément conducteur (wireframe 2) : identité, permis, casier judiciaire, assurance.
 class ApprovalScreen extends StatefulWidget {
-  const ApprovalScreen({super.key, required this.repository});
+  const ApprovalScreen({super.key, required this.repository, this.picker});
 
   final DriverRepository repository;
+
+  /// Choix du fichier à déposer. Par défaut : appareil photo ou galerie du téléphone ;
+  /// les tests injectent un fichier sans passer par le système.
+  final Future<PickedDocument?> Function(BuildContext context)? picker;
 
   @override
   State<ApprovalScreen> createState() => _ApprovalScreenState();
@@ -26,10 +31,56 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
     _loading = widget.repository.approval();
   });
 
+  /// Choix de la source (appareil photo ou galerie), puis lecture du fichier.
+  Future<PickedDocument?> _pick() async {
+    final custom = widget.picker;
+    if (custom != null) return custom(context);
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Prendre une photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choisir dans la galerie'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return null;
+    final image = await ImagePicker().pickImage(source: source, imageQuality: 85, maxWidth: 1800);
+    if (image == null) return null;
+    final name = image.name.toLowerCase();
+    final contentType = name.endsWith('.png')
+        ? 'image/png'
+        : name.endsWith('.webp')
+        ? 'image/webp'
+        : 'image/jpeg';
+    return PickedDocument(bytes: await image.readAsBytes(), contentType: contentType, name: image.name);
+  }
+
   Future<void> _upload(DriverDocument document) async {
+    PickedDocument? file;
+    try {
+      file = await _pick();
+    } catch (_) {
+      if (!mounted) return;
+      showDriverMessage(context, 'Impossible d\'ouvrir l\'appareil photo ou la galerie.', isError: true);
+      return;
+    }
+    if (file == null || !mounted) return;
     setState(() => _uploading = document.kind);
     try {
-      final approval = await widget.repository.uploadDocument(document.kind);
+      final approval = await widget.repository.uploadDocument(document.kind, file);
       if (!mounted) return;
       setState(() {
         _approval = approval;
@@ -56,8 +107,9 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
           padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
           children: [
             const Text(
-              'Déposez vos 4 pièces. MboaRide les vérifie avant votre premier trajet : '
-              'aucun trajet ne peut être publié avant l\'agrément.',
+              'Déposez vos 4 pièces en photo. Un administrateur MboaRide les vérifie avant votre '
+              'premier trajet et vous prévient de sa décision : aucun trajet ne peut être publié '
+              'avant l\'agrément.',
               style: TextStyle(fontSize: 15, color: MboaColors.mutedText, height: 1.45),
             ),
             const SizedBox(height: 16),
@@ -114,6 +166,7 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
       DocumentStatus.validated => ('Validée', PillTone.success),
       DocumentStatus.pending => ('En vérification', PillTone.warning),
       DocumentStatus.missing => ('À déposer', PillTone.danger),
+      DocumentStatus.rejected => ('Refusée', PillTone.danger),
     };
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -136,7 +189,7 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
               StatusPill(label, tone: tone),
             ],
           ),
-          if (document.status == DocumentStatus.missing) ...[
+          if (document.status == DocumentStatus.missing || document.status == DocumentStatus.rejected) ...[
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
@@ -150,7 +203,11 @@ class _ApprovalScreenState extends State<ApprovalScreen> {
                 icon: _uploading == document.kind
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.upload_outlined),
-                label: Text('Déposer : ${document.label.toLowerCase()}'),
+                label: Text(
+                  document.status == DocumentStatus.rejected
+                      ? 'Déposer de nouveau : ${document.label.toLowerCase()}'
+                      : 'Déposer : ${document.label.toLowerCase()}',
+                ),
               ),
             ),
           ],

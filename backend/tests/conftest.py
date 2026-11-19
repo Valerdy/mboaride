@@ -21,10 +21,22 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.db import connect  # noqa: E402
 from app.main import app  # noqa: E402
 
+# Une vraie image PNG de 1 pixel : le dépôt d'une pièce d'agrément exige un fichier.
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478"
+                    "9c6360f8cfc0f01f0005000201a3d8b4a60000000049454e44ae426082")
+PIECE = {"Content-Type": "image/png"}
+
 SCRIPTS = ["01_schema.sql", "02_donnees_exemple.sql", "04_sprint2.sql", "05_sprint3.sql",
            "06_sprint3_eleves.sql", "07_pont_node.sql", "08_parcours_complet.sql",
            "09_comptes_mobile_money.sql", "10_portefeuille_fin_de_course.sql", "11_administration.sql",
            "12_administration_suite.sql"]
+
+
+@pytest.fixture(autouse=True)
+def stockage(tmp_path, monkeypatch):
+    """Les fichiers déposés pendant un test vont dans un dossier temporaire, effacé ensuite."""
+    from app import config
+    monkeypatch.setattr(config, "STOCKAGE", tmp_path / "stockage")
 
 
 @pytest.fixture()

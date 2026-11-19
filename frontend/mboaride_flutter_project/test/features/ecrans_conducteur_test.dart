@@ -149,13 +149,18 @@ void main() {
 
     testWidgets('une pièce déposée passe en vérification', (tester) async {
       _tallScreen(tester);
-      await tester.pumpWidget(_app(ApprovalScreen(repository: _repo(approved: false))));
+      PickedDocument? envoye;
+      await tester.pumpWidget(_app(ApprovalScreen(
+        repository: _repo(approved: false),
+        picker: (_) async => envoye = const PickedDocument(bytes: [1, 2, 3], contentType: 'image/jpeg'),
+      )));
       await tester.pumpAndSettle();
       expect(find.text('2 sur 4'), findsOneWidget);
       expect(find.text('À déposer'), findsOneWidget);
       expect(find.text('En vérification'), findsOneWidget);
 
       await _tapVisible(tester, find.textContaining('Déposer :'));
+      expect(envoye, isNotNull);
       expect(find.text('À déposer'), findsNothing);
       expect(find.text('En vérification'), findsNWidgets(2));
     });

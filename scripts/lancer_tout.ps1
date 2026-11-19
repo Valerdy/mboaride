@@ -9,6 +9,13 @@
 #   SECRET_KEY                               secret partagé par les deux API (généré au besoin)
 # Mode d'emploi complet : docs/demarrage-local.md
 
+#
+# Avec -Apps, lance aussi l'émulateur et les deux applications (client sur le téléphone,
+# chauffeur sur l'émulateur) : tout MboaRide en une commande.
+#   powershell -ExecutionPolicy Bypass -File scripts\lancer_tout.ps1 -Apps
+
+param([switch]$Apps)
+
 $ErrorActionPreference = 'Stop'
 $Racine = Split-Path -Parent $PSScriptRoot
 $Backend = Join-Path $Racine 'backend'
@@ -116,7 +123,6 @@ $cmdPy = @"
 `$Host.UI.RawUI.WindowTitle = 'MboaRide - API Python ($PortApi)'
 `$env:MBOARIDE_DSN = '$($dsn.Replace("'", "''"))'
 `$env:MBOARIDE_SECRET_KEY = '$($conf['SECRET_KEY'])'
-`$env:MBOARIDE_AGREMENT_AUTO = '1'
 `$env:MBOARIDE_SIMULATION = '1'
 $smtpPy
 Set-Location -LiteralPath '$Backend'
@@ -158,7 +164,6 @@ MboaRide tourne.
   Administration MboaRide   : http://localhost:$PortApi/admin  (premier admin : scripts\creer_admin.py <e-mail>)
   Codes de vérification     : affichés dans l'application et dans la fenêtre « API Node »
 
-Applications (dans frontend\mboaride_flutter_project) :
-  Chauffeur, téléphone : flutter run -d 2B241FDH3000YX --dart-define=API_URL=http://127.0.0.1:$PortApi --dart-define=AUTH_URL=http://127.0.0.1:$PortAuth --dart-define=START=driver
-  Client, émulateur    : flutter run -d emulator-5554 --dart-define=API_URL=http://127.0.0.1:$PortApi --dart-define=AUTH_URL=http://127.0.0.1:$PortAuth
+Applications : scripts\lancer_apps.ps1  (client sur le téléphone, chauffeur sur l'émulateur)
 "@
+if ($Apps) { & (Join-Path $PSScriptRoot 'lancer_apps.ps1') }

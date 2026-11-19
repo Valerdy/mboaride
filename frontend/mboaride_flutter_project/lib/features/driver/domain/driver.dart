@@ -32,7 +32,16 @@ int roundHalfUp(double value) => (value + 0.5).floor();
 
 // --- Agrément --------------------------------------------------------------------------
 
-enum DocumentStatus { validated, pending, missing }
+enum DocumentStatus { validated, pending, missing, rejected }
+
+/// Fichier choisi par le conducteur pour une pièce : photo (JPEG, PNG, WebP) ou PDF.
+class PickedDocument {
+  const PickedDocument({required this.bytes, required this.contentType, this.name = ''});
+
+  final List<int> bytes;
+  final String contentType;
+  final String name;
+}
 
 class DriverDocument {
   const DriverDocument({
@@ -72,8 +81,9 @@ class Approval {
       documents.isNotEmpty && validatedCount == documents.length;
 
   /// Toutes les pièces sont déposées (validées ou en vérification).
-  bool get allSubmitted =>
-      documents.every((d) => d.status != DocumentStatus.missing);
+  bool get allSubmitted => documents.every(
+    (d) => d.status != DocumentStatus.missing && d.status != DocumentStatus.rejected,
+  );
 }
 
 // --- Véhicule et confort -----------------------------------------------------------------

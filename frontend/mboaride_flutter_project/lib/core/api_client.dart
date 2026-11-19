@@ -58,6 +58,17 @@ class ApiClient {
     ),
   );
 
+  /// Envoie un fichier tel quel (photo ou PDF) : le corps de la requête est le fichier,
+  /// son type MIME est dans `Content-Type`. Délai plus long qu'un appel JSON.
+  Future<dynamic> postBytes(String path, List<int> bytes, {required String contentType}) => _send(
+    () => _client.post(
+      _uri(path),
+      headers: {..._headers(), 'Content-Type': contentType},
+      body: bytes,
+    ),
+    timeout: const Duration(seconds: 60),
+  );
+
   Future<dynamic> put(String path, Map<String, dynamic> body) => _send(
     () => _client.put(_uri(path), headers: _headers(), body: jsonEncode(body)),
   );
@@ -67,10 +78,10 @@ class ApiClient {
 
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
 
-  Future<dynamic> _send(Future<http.Response> Function() call) async {
+  Future<dynamic> _send(Future<http.Response> Function() call, {Duration timeout = _timeout}) async {
     http.Response response;
     try {
-      response = await call().timeout(_timeout);
+      response = await call().timeout(timeout);
     } on TimeoutException {
       throw ApiException('Le serveur ne répond pas. Réessayez.');
     } on http.ClientException {

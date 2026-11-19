@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/mboa_logo.dart';
 import '../../../core/mboa_theme.dart';
 import '../../../services/session.dart';
 import '../../notifications/notifications.dart';
@@ -51,7 +52,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Espace conducteur'),
+        title: const Row(
+          children: [
+            MboaLogo(height: 22),
+            SizedBox(width: 8),
+            Flexible(child: Text('Espace conducteur', overflow: TextOverflow.ellipsis)),
+          ],
+        ),
         actions: [
           if (widget.notifications != null) NotificationBell(repository: widget.notifications!),
           if (widget.walletRepository != null)

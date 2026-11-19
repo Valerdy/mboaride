@@ -4,10 +4,11 @@ Agrément, véhicule, règles, publication d'un trajet, prochain équipage, acti
 l'agent, retard, gains et évaluation des passagers. L'annulation et la réaffectation
 (US07) restent dans routes/annulation.py, déjà branchée sur le moteur.
 
-Agrément en démonstration : aucun agent de MboaRide ne vérifie encore les pièces.
-Avec `MBOARIDE_AGREMENT_AUTO=1` (lanceur local), une pièce déposée est validée aussitôt
-et l'agrément devient actif quand les quatre le sont. Sans cette variable, les pièces
-restent « déposées » et l'agrément « en vérification », comme en production.
+Agrément : chaque pièce est un vrai fichier (photo ou PDF) rangé par `pieces.py`. Il reste
+« déposé » jusqu'à ce qu'un administrateur le consulte dans la console et le valide ou le
+refuse ; le conducteur est prévenu de chaque décision. L'agrément devient actif quand les
+quatre pièces sont valides. Avec `MBOARIDE_AGREMENT_AUTO=1` (essais automatisés seulement),
+le fichier est validé aussitôt.
 """
 
 from __future__ import annotations
@@ -15,10 +16,10 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
-from .. import config, lieux, moteur
+from .. import config, lieux, moteur, pieces
 from ..db import get_conn
 from ..notifications import notifier
 from ..securite import utilisateur_courant
@@ -57,7 +58,8 @@ def vue_d_ensemble(u: dict = Depends(utilisateur_courant), conn: psycopg.Connect
 
 def _agrement(conn, u: dict) -> dict:
     deposes = {r["type_document"]: r for r in conn.execute(
-        "SELECT type_document, statut, depose_le, expire_le FROM document_agrement WHERE id_utilisateur = %s",
+        "SELECT type_document, statut, depose_le, expire_le, motif_refus FROM document_agrement "
+        "WHERE id_utilisateur = %s",
         (u["id_utilisateur"],)).fetchall()}
     documents = []
     for code, libelle in PIECES.items():
@@ -70,7 +72,9 @@ def _agrement(conn, u: dict) -> dict:
         elif r["statut"] == "depose":
             statut, detail = "depose", f"Déposée le {r['depose_le']:%d/%m/%Y}, en vérification"
         else:
-            statut, detail = "manquant", f"Pièce {r['statut']} : à déposer de nouveau"
+            statut = "refuse"
+            motif = f" : {r['motif_refus']}" if r["motif_refus"] else ""
+            detail = f"Refusée{motif}. Déposez-la de nouveau."
         documents.append({"type": code, "libelle": libelle, "statut": statut, "detail": detail})
     statut = conn.execute("SELECT statut_agrement FROM utilisateur WHERE id_utilisateur = %s",
                           (u["id_utilisateur"],)).fetchone()["statut_agrement"]
@@ -83,22 +87,31 @@ def agrement(u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = 
 
 
 @router.post("/agrement/documents/{type_document}")
-def deposer(type_document: str, u: dict = Depends(utilisateur_courant),
-            conn: psycopg.Connection = Depends(get_conn)) -> dict:
+def deposer(type_document: str, fichier: bytes = Body(media_type="application/octet-stream"),
+            u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Dépose une pièce : le corps de la requête est le fichier lui-même (photo ou PDF)."""
     if type_document not in PIECES:
         raise HTTPException(404, f"Pièce inconnue : {type_document}")
     if u["statut_agrement"] == "suspendu":
         raise HTTPException(403, "Agrément suspendu après un signalement : contactez MboaRide")
+    existante = conn.execute("SELECT statut, chemin_fichier FROM document_agrement "
+                             "WHERE id_utilisateur = %s AND type_document = %s",
+                             (u["id_utilisateur"], type_document)).fetchone()
+    if existante and existante["statut"] == "valide" and not config.AGREMENT_AUTO:
+        raise HTTPException(409, "Cette pièce est déjà validée : elle sera redemandée à son expiration")
+    chemin = pieces.enregistrer(u["id_utilisateur"], type_document, fichier)
     auto = config.AGREMENT_AUTO
     conn.execute(
         """INSERT INTO document_agrement (id_utilisateur, type_document, statut, chemin_fichier, expire_le)
            VALUES (%s, %s, %s, %s, %s)
            ON CONFLICT (id_utilisateur, type_document) DO UPDATE
               SET statut = EXCLUDED.statut, chemin_fichier = EXCLUDED.chemin_fichier,
-                  depose_le = now(), expire_le = EXCLUDED.expire_le""",
-        (u["id_utilisateur"], type_document, "valide" if auto else "depose",
-         f"agrement/{u['id_utilisateur']}/{type_document}",
+                  depose_le = now(), expire_le = EXCLUDED.expire_le, motif_refus = NULL,
+                  verifie_par = NULL, verifie_le = NULL""",
+        (u["id_utilisateur"], type_document, "valide" if auto else "depose", chemin,
          date.today() + timedelta(days=365) if auto else None))
+    if existante:
+        pieces.supprimer(existante["chemin_fichier"])
     valides = conn.execute("SELECT count(*) n FROM document_agrement WHERE id_utilisateur = %s AND statut = 'valide'",
                            (u["id_utilisateur"],)).fetchone()["n"]
     statut = "actif" if valides == len(PIECES) else "en_verification"

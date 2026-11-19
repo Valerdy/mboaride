@@ -141,7 +141,15 @@ void main() {
       });
       final repository = ApiDriverRepository(client: ApiClient(client: client));
 
-      final approval = await repository.uploadDocument('licence');
+      final approval = await repository.uploadDocument(
+        'licence',
+        const PickedDocument(bytes: [0x89, 0x50, 0x4e, 0x47], contentType: 'image/png', name: 'permis.png'),
+      );
+      // Le fichier part tel quel, avec son type : ce n'est plus un simple appel vide.
+      final depot = calls.first;
+      expect(depot.method, 'POST');
+      expect(depot.headers['content-type'], startsWith('image/png'));
+      expect(depot.bodyBytes, [0x89, 0x50, 0x4e, 0x47]);
       expect(approval.documents.map((d) => (d.kind, d.status)), [
         ('licence', DocumentStatus.validated),
         ('insurance', DocumentStatus.missing),

@@ -21,6 +21,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
          border-bottom: 1px solid var(--trait); position: sticky; top: 0; z-index: 2; }
 .logo { font-family: Poppins, sans-serif; font-size: 21px; display: flex; align-items: center; gap: 8px; }
 .logo .vert { color: var(--vert); }
+.logo-chip { display: grid; place-items: center; background: #fff; border-radius: 12px; padding: 4px 6px;
+             box-shadow: 0 4px 12px rgba(11, 110, 79, .16); border: 1px solid var(--trait); }
+.logo-chip img { display: block; width: 50px; height: auto; }
+.logo-complet { display: block; height: 54px; width: auto; }
 .pin { width: 28px; height: 28px; border-radius: 9px; background: var(--degrade); position: relative;
        box-shadow: 0 6px 14px rgba(11, 110, 79, .28); }
 .pin::after { content: ""; position: absolute; left: 9px; top: 6px; width: 10px; height: 10px; background: var(--jaune); border-radius: 50% 50% 50% 0; transform: rotate(-45deg); }
