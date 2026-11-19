@@ -43,6 +43,7 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
 Crew _crew() => FakeDriverRepository.demoCrew();
 
 void main() {
+  accesConducteurTests();
   group('calculs', () {
     test('le prix suit la règle du produit du moteur d\'agents', () {
       // Logpom → Bonabéri : 15 km × 8 L/100 km × 840 FCFA = 1 008 FCFA de carburant.
@@ -272,6 +273,37 @@ void main() {
       await _tapVisible(tester, find.byTooltip('5 étoiles pour Grâce'));
       await _tapVisible(tester, find.text('Envoyer mon évaluation'));
       expect(repository.lastRatings.firstWhere((r) => r.passenger == 'Grâce').stars, 5);
+    });
+  });
+}
+
+void accesConducteurTests() {
+  group('accès à l\'espace conducteur', () {
+    testWidgets('un passager voit la procédure pour devenir chauffeur, sans onglets ni véhicule', (tester) async {
+      _tallScreen(tester);
+      await tester.pumpWidget(_app(DriverShell(
+        repository: FakeDriverRepository(isDriver: false, delay: Duration.zero),
+        showMapTiles: false,
+      )));
+      await tester.pumpAndSettle();
+      expect(find.text('Devenez chauffeur MboaRide'), findsOneWidget);
+      expect(find.byKey(const ValueKey('devenir-chauffeur')), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+      expect(find.text('Mon véhicule'), findsNothing);
+
+      // Le bouton ouvre le dépôt des pièces.
+      await tester.tap(find.byKey(const ValueKey('devenir-chauffeur')));
+      await tester.pumpAndSettle();
+      expect(find.text('Agrément conducteur'), findsOneWidget);
+    });
+
+    testWidgets('un conducteur garde l\'accueil complet et ses onglets', (tester) async {
+      _tallScreen(tester);
+      await tester.pumpWidget(_app(DriverShell(repository: _repo(), showMapTiles: false)));
+      await tester.pumpAndSettle();
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.text('Mon véhicule'), findsWidgets);
+      expect(find.byKey(const ValueKey('devenir-chauffeur')), findsNothing);
     });
   });
 }

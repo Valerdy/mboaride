@@ -6,8 +6,10 @@ import 'package:latlong2/latlong.dart' hide Circle;
 import '../app_services.dart';
 import '../core/api_client.dart';
 import '../core/auth_session.dart';
+import '../services/auth_service.dart';
 import '../core/road_routing.dart';
 import '../features/children/presentation/children_screen.dart';
+import '../features/driver/presentation/approval_screen.dart';
 import '../features/driver/presentation/driver_shell.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
 import '../features/offers/presentation/my_requests_screen.dart';
@@ -130,6 +132,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
     final n = DateTime.now();
     _day = n.hour * 60 + n.minute >= 7 * 60 + 30 ? RideDay.tomorrow : RideDay.today;
     if (widget.token.isNotEmpty) AuthSession.accessToken = widget.token;
+    _refreshRole();
     _originFocus.addListener(() {
       if (_originFocus.hasFocus) {
         setState(() => _selectingOriginOnMap = true);
@@ -412,8 +415,18 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
     intercityRepository: AppServices.intercity,
   );
 
-  void _push(Widget screen) =>
-      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+  /// Vrai quand la personne a commencé la procédure de chauffeur : le menu lui montre l'espace conducteur.
+  bool get _isDriver => AuthSession.profile?['est_conducteur'] == true;
+
+  Future<void> _refreshRole() async {
+    await AuthService().getProfile();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _push(Widget screen) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    _refreshRole();                  // le dépôt d'une pièce fait de la personne un conducteur
+  }
 
   void _openProfile() => _push(const ProfileScreen());
 
@@ -481,15 +494,22 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                   IntercityScreen(repository: AppServices.intercity)),
               _drawerItem(Icons.school_rounded, 'Mes enfants (scolaire)',
                   ChildrenScreen(repository: AppServices.children)),
-              _drawerItem(
-                Icons.drive_eta_rounded,
-                'Espace conducteur',
-                DriverShell(
-                  repository: AppServices.driver,
-                  walletRepository: AppServices.payments,
-                  notifications: AppServices.notifications,
+              if (_isDriver)
+                _drawerItem(
+                  Icons.drive_eta_rounded,
+                  'Espace conducteur',
+                  DriverShell(
+                    repository: AppServices.driver,
+                    walletRepository: AppServices.payments,
+                    notifications: AppServices.notifications,
+                  ),
+                )
+              else
+                _drawerItem(
+                  Icons.drive_eta_rounded,
+                  'Devenir chauffeur',
+                  ApprovalScreen(repository: AppServices.driver),
                 ),
-              ),
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.person_rounded, color: darkGreen),

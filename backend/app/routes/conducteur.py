@@ -42,6 +42,15 @@ def _hhmm(t) -> str | None:
     return t.strftime("%H:%M") if t is not None else None
 
 
+def conducteur_courant(u: dict = Depends(utilisateur_courant)) -> dict:
+    """Réservé aux conducteurs : une personne qui n'a pas commencé la procédure (dépôt des pièces d'agrément)
+    n'a accès ni au véhicule, ni aux trajets, ni à l'équipage. Le dépôt des pièces la rend conductrice."""
+    if not u["est_conducteur"]:
+        raise HTTPException(403, "Espace réservé aux conducteurs : devenez chauffeur depuis votre profil "
+                                 "(dépôt des pièces d'agrément).")
+    return u
+
+
 def _vehicule(conn, uid: int) -> dict | None:
     return conn.execute("SELECT * FROM vehicule WHERE id_proprietaire = %s ORDER BY id_vehicule LIMIT 1",
                         (uid,)).fetchone()
@@ -51,7 +60,7 @@ def _vehicule(conn, uid: int) -> dict | None:
 
 @router.get("")
 def vue_d_ensemble(u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = Depends(get_conn)) -> dict:
-    return {"prenom": u["prenom"], "statut_agrement": u["statut_agrement"],
+    return {"prenom": u["prenom"], "statut_agrement": u["statut_agrement"], "est_conducteur": u["est_conducteur"],
             "agree": u["statut_agrement"] == "actif", "automatique": u["mode_reservation"] == "autonome",
             "a_un_vehicule": _vehicule(conn, u["id_utilisateur"]) is not None}
 
@@ -136,7 +145,7 @@ class Vehicule(BaseModel):
 
 
 @router.get("/vehicule")
-def lire_vehicule(u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = Depends(get_conn)) -> dict:
+def lire_vehicule(u: dict = Depends(conducteur_courant), conn: psycopg.Connection = Depends(get_conn)) -> dict:
     v = _vehicule(conn, u["id_utilisateur"])
     if v is None:
         raise HTTPException(404, "Aucun véhicule enregistré")
@@ -144,7 +153,7 @@ def lire_vehicule(u: dict = Depends(utilisateur_courant), conn: psycopg.Connecti
 
 
 @router.put("/vehicule")
-def enregistrer_vehicule(body: Vehicule, u: dict = Depends(utilisateur_courant),
+def enregistrer_vehicule(body: Vehicule, u: dict = Depends(conducteur_courant),
                          conn: psycopg.Connection = Depends(get_conn)) -> dict:
     v = _vehicule(conn, u["id_utilisateur"])
     plaque = " ".join(body.immatriculation.upper().split())
@@ -196,12 +205,12 @@ def _regles(u: dict) -> dict:
 
 
 @router.get("/regles")
-def lire_regles(u: dict = Depends(utilisateur_courant)) -> dict:
+def lire_regles(u: dict = Depends(conducteur_courant)) -> dict:
     return _regles(u)
 
 
 @router.put("/regles")
-def enregistrer_regles(body: Regles, u: dict = Depends(utilisateur_courant),
+def enregistrer_regles(body: Regles, u: dict = Depends(conducteur_courant),
                        conn: psycopg.Connection = Depends(get_conn)) -> dict:
     u = conn.execute(
         """UPDATE utilisateur SET accepte_collegues = %s, accepte_partenaires = %s, accepte_public = %s,
@@ -260,7 +269,7 @@ def _lieu(nom: str) -> tuple[str, float, float]:
 
 
 @router.post("/trajets", status_code=201)
-def publier(body: NouveauTrajet, u: dict = Depends(utilisateur_courant),
+def publier(body: NouveauTrajet, u: dict = Depends(conducteur_courant),
             conn: psycopg.Connection = Depends(get_conn)) -> dict:
     return _publier(conn, body, u)
 
@@ -322,7 +331,7 @@ class Ramassage(BaseModel):
 
 
 @router.put("/trajets/{id_trajet}/ramassage")
-def preciser_ramassage(id_trajet: int, body: Ramassage, u: dict = Depends(utilisateur_courant),
+def preciser_ramassage(id_trajet: int, body: Ramassage, u: dict = Depends(conducteur_courant),
                        conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """Préciser le point de ramassage d'un trajet déjà publié ; les passagers inscrits sont prévenus."""
     t = conn.execute(
@@ -350,7 +359,7 @@ class LotDeTrajets(BaseModel):
 
 
 @router.post("/trajets/lot", status_code=201)
-def publier_plusieurs(body: LotDeTrajets, u: dict = Depends(utilisateur_courant),
+def publier_plusieurs(body: LotDeTrajets, u: dict = Depends(conducteur_courant),
                       conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """Programme plusieurs trajets d'un coup (aller et retour, plusieurs dates ou horaires).
 
@@ -381,7 +390,7 @@ def _prochain_depart(conn, t: dict, annulees: set) -> date | None:
 
 
 @router.get("/trajets")
-def mes_trajets_programmes(u: dict = Depends(utilisateur_courant),
+def mes_trajets_programmes(u: dict = Depends(conducteur_courant),
                            conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     """Tous les trajets du conducteur : actifs, retirés ou passés, avec leurs dates annulées."""
     trajets = conn.execute("SELECT * FROM trajet WHERE id_conducteur = %s ORDER BY statut = 'actif' DESC, "
@@ -421,7 +430,7 @@ class Retrait(BaseModel):
 
 
 @router.post("/trajets/{id_trajet}/retrait")
-def retirer_trajet(id_trajet: int, body: Retrait, u: dict = Depends(utilisateur_courant),
+def retirer_trajet(id_trajet: int, body: Retrait, u: dict = Depends(conducteur_courant),
                    conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """Retire un trajet entier : il n'est plus proposé, et chaque passager déjà inscrit est
     prévenu, remboursé et réaffecté si possible (comme pour l'annulation d'une date)."""
@@ -453,7 +462,7 @@ class Republication(BaseModel):
 
 
 @router.post("/trajets/{id_trajet}/republication")
-def republier(id_trajet: int, body: Republication, u: dict = Depends(utilisateur_courant),
+def republier(id_trajet: int, body: Republication, u: dict = Depends(conducteur_courant),
               conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """Remet en ligne un trajet retiré (ou passé), à une nouvelle date si c'était un trajet ponctuel."""
     if u["statut_agrement"] != "actif":
@@ -488,7 +497,7 @@ def republier(id_trajet: int, body: Republication, u: dict = Depends(utilisateur
 
 
 @router.delete("/trajets/{id_trajet}/annulations/{date_trajet}")
-def retablir_date(id_trajet: int, date_trajet: date, u: dict = Depends(utilisateur_courant),
+def retablir_date(id_trajet: int, date_trajet: date, u: dict = Depends(conducteur_courant),
                   conn: psycopg.Connection = Depends(get_conn)) -> dict:
     """Rétablit une date annulée : le trajet est de nouveau proposé ce jour-là."""
     t = _mon_trajet(conn, id_trajet, u)
@@ -557,7 +566,7 @@ def _equipage(conn, t: dict, jour: date) -> dict:
 
 
 @router.get("/equipage")
-def prochain_equipage(u: dict = Depends(utilisateur_courant),
+def prochain_equipage(u: dict = Depends(conducteur_courant),
                       conn: psycopg.Connection = Depends(get_conn)) -> dict | None:
     """Prochain départ du conducteur, avec ses passagers.
 
@@ -601,7 +610,7 @@ def prochain_equipage(u: dict = Depends(utilisateur_courant),
 # --- Activité de l'agent, retard, gains, évaluation ---------------------------------------------
 
 @router.get("/activite")
-def activite(u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+def activite(u: dict = Depends(conducteur_courant), conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     """Réservations obtenues par l'agent conducteur sur les trajets du conducteur, les plus récentes d'abord."""
     rows = conn.execute(
         """SELECT r.statut, r.date_trajet, r.prix_fcfa, r.niveau_cercle, u.prenom AS passager,
@@ -625,7 +634,7 @@ class Retard(BaseModel):
 
 
 @router.post("/retard")
-def signaler_retard(body: Retard, u: dict = Depends(utilisateur_courant),
+def signaler_retard(body: Retard, u: dict = Depends(conducteur_courant),
                     conn: psycopg.Connection = Depends(get_conn)) -> dict:
     t = conn.execute("SELECT * FROM trajet WHERE id_trajet = %s AND id_conducteur = %s",
                      (body.id_trajet, u["id_utilisateur"])).fetchone()
@@ -643,7 +652,7 @@ def signaler_retard(body: Retard, u: dict = Depends(utilisateur_courant),
 
 
 @router.get("/gains")
-def gains(u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = Depends(get_conn)) -> dict:
+def gains(u: dict = Depends(conducteur_courant), conn: psycopg.Connection = Depends(get_conn)) -> dict:
     rows = conn.execute(
         """SELECT r.id_trajet, r.date_trajet, t.depart_libelle, t.arrivee_libelle, t.depart_lat, t.depart_lon,
                   t.arrivee_lat, t.arrivee_lon, t.type_trajet, v.conso_l_100km,
@@ -686,7 +695,7 @@ class Evaluation(BaseModel):
 
 
 @router.post("/evaluations", status_code=201)
-def evaluer_passagers(body: Evaluation, u: dict = Depends(utilisateur_courant),
+def evaluer_passagers(body: Evaluation, u: dict = Depends(conducteur_courant),
                       conn: psycopg.Connection = Depends(get_conn)) -> dict:
     t = conn.execute("SELECT * FROM trajet WHERE id_trajet = %s AND id_conducteur = %s",
                      (body.id_trajet, u["id_utilisateur"])).fetchone()
