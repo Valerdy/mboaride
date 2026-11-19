@@ -802,9 +802,14 @@ class DriverOverview {
     required this.approved,
     required this.automatic,
     this.nextCrew,
+    this.isDriver = true,
   });
 
   final String firstName;
+
+  /// Faux pour un simple passager : il n'a pas commencé la procédure pour devenir chauffeur
+  /// (dépôt des pièces d'agrément) et n'a accès ni au véhicule ni aux trajets.
+  final bool isDriver;
 
   /// null : l'état de l'agrément n'est pas connu (l'API ne le publie pas encore).
   final bool? approved;

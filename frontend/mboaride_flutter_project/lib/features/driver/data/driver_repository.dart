@@ -97,11 +97,13 @@ class ApiDriverRepository implements DriverRepository {
   @override
   Future<DriverOverview> overview() async {
     final body = await _client.get(_base) as Map<String, dynamic>;
+    final isDriver = body['est_conducteur'] as bool? ?? true;
     return DriverOverview(
       firstName: body['prenom'] as String? ?? '',
       approved: body['agree'] as bool?,
       automatic: body['automatique'] as bool? ?? true,
-      nextCrew: await nextCrew(),
+      isDriver: isDriver,
+      nextCrew: isDriver ? await nextCrew() : null,
     );
   }
 
@@ -431,8 +433,14 @@ class ApiDriverRepository implements DriverRepository {
 /// Données simulées (FAKE_API=true) : Armand, conducteur Logpom → Bonabéri (persona du
 /// document de vision), départ 6 h 45, trois places, détour maximal de 2 km.
 class FakeDriverRepository implements DriverRepository {
-  FakeDriverRepository({bool approvedAtStart = true, this.delay = const Duration(milliseconds: 150)})
-    : _approval = Approval(_documents(approvedAtStart));
+  FakeDriverRepository({
+    bool approvedAtStart = true,
+    this.isDriver = true,
+    this.delay = const Duration(milliseconds: 150),
+  }) : _approval = Approval(_documents(approvedAtStart));
+
+  /// Faux : un simple passager, qui n'a pas commencé la procédure pour devenir chauffeur.
+  final bool isDriver;
 
   final Duration delay;
   Approval _approval;
@@ -533,7 +541,8 @@ class FakeDriverRepository implements DriverRepository {
       firstName: 'Armand',
       approved: _approval.approved,
       automatic: _rules.automatic,
-      nextCrew: _cancelled ? null : _crew,
+      isDriver: isDriver,
+      nextCrew: !isDriver || _cancelled ? null : _crew,
     );
   }
 

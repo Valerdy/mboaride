@@ -81,7 +81,10 @@ Console web : http://localhost:8000 (documentation de l'API : http://localhost:8
 1. « Créer mon compte » : nom, e-mail `prenom@entreprise-a.cm`, téléphone, mot de passe
    (8 caractères). Le code de vérification s'affiche dans l'application (démonstration
    locale) et dans la fenêtre « API Node ».
-2. Espace conducteur, carte « Agrément » : déposer les quatre pièces en photo (appareil
+2. Un compte qui vient d'être créé est un simple passager : il n'a ni « Espace conducteur » ni
+   « Mon véhicule » (le serveur les refuse aussi). Son profil et son menu montrent « Devenir
+   chauffeur » ; le premier dépôt de pièce commence la procédure et ouvre l'espace conducteur.
+   Dans l'espace conducteur, carte « Agrément » : déposer les quatre pièces en photo (appareil
    photo ou galerie). Elles restent « en vérification » jusqu'à ce qu'un administrateur les
    ouvre dans la console (http://localhost:8000/admin, page « Agréments », bouton « Voir le
    fichier ») et les valide ou les refuse. Le conducteur reçoit une notification pour chaque

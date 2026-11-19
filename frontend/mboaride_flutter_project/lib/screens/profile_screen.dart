@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../app_services.dart';
 import '../features/children/presentation/children_screen.dart';
+import '../features/driver/presentation/approval_screen.dart';
 import '../features/driver/presentation/driver_shell.dart';
 import '../features/driver/presentation/vehicle_screen.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
@@ -59,8 +60,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
-  void _open(Widget screen) =>
-      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+  /// Les écrans du conducteur (espace, véhicule) ne s'ouvrent qu'après le début de la procédure.
+  bool get _isDriver => _profile?['est_conducteur'] == true;
+
+  Future<void> _open(Widget screen) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    if (mounted) _loadProfile();     // le dépôt d'une pièce fait de la personne un conducteur
+  }
 
   /// Déconnexion immédiate (la révocation du jeton part en arrière-plan).
   void _signOut() => Session.confirmSignOut(context);
@@ -129,6 +135,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ),
+                  if (p != null && !_isDriver) ...[
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton.icon(
+                        key: const ValueKey('devenir-chauffeur'),
+                        onPressed: () => _open(ApprovalScreen(repository: AppServices.driver)),
+                        icon: const Icon(Icons.drive_eta_rounded),
+                        label: const Text('Devenir chauffeur'),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Déposez vos pièces en photo : MboaRide les vérifie, puis vous publiez vos trajets.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12.5, color: Colors.black54),
+                    ),
+                  ],
                   const SizedBox(height: 28),
                   const Align(
                     alignment: Alignment.centerLeft,
@@ -159,24 +184,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     onTap: () => _open(NotificationsScreen(repository: AppServices.notifications)),
                   ),
                   const SizedBox(height: 10),
-                  _buildServiceTile(
-                    icon: Icons.drive_eta_rounded,
-                    title: 'Espace conducteur',
-                    subtitle: 'Agrément, véhicule, trajets publiés et équipage du jour',
-                    onTap: () => _open(DriverShell(
-                      repository: AppServices.driver,
-                      walletRepository: AppServices.payments,
-                      notifications: AppServices.notifications,
-                    )),
-                  ),
-                  const SizedBox(height: 10),
-                  _buildServiceTile(
-                    icon: Icons.directions_car_filled_rounded,
-                    title: 'Mon véhicule',
-                    subtitle: 'Places, consommation et confort',
-                    onTap: () => _open(VehicleScreen(repository: AppServices.driver)),
-                  ),
-                  const SizedBox(height: 10),
+                  if (_isDriver) ...[
+                    _buildServiceTile(
+                      icon: Icons.drive_eta_rounded,
+                      title: 'Espace conducteur',
+                      subtitle: 'Agrément, véhicule, trajets publiés et équipage du jour',
+                      onTap: () => _open(DriverShell(
+                        repository: AppServices.driver,
+                        walletRepository: AppServices.payments,
+                        notifications: AppServices.notifications,
+                      )),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildServiceTile(
+                      icon: Icons.directions_car_filled_rounded,
+                      title: 'Mon véhicule',
+                      subtitle: 'Places, consommation et confort',
+                      onTap: () => _open(VehicleScreen(repository: AppServices.driver)),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   _buildServiceTile(
                     icon: Icons.tune_rounded,
                     title: 'Mes exigences de confort',

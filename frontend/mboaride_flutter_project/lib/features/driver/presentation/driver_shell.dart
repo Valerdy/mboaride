@@ -38,15 +38,21 @@ class DriverShell extends StatefulWidget {
 class _DriverShellState extends State<DriverShell> {
   late int _tab = widget.initialTab;
 
+  /// Faux pour un passager : seul l'accueil (la procédure pour devenir chauffeur) lui est ouvert.
+  bool _isDriver = true;
+
   void _open(int tab) => setState(() => _tab = tab);
 
   @override
   Widget build(BuildContext context) {
     final repository = widget.repository;
-    final body = switch (_tab) {
+    final body = switch (_isDriver ? _tab : 0) {
       0 => DriverHomeScreen(
         repository: repository,
         onOpenTab: _open,
+        onRoleKnown: (isDriver) {
+          if (isDriver != _isDriver && mounted) setState(() => _isDriver = isDriver);
+        },
         showMapTiles: widget.showMapTiles,
         walletRepository: widget.walletRepository,
         notifications: widget.notifications,
@@ -57,7 +63,7 @@ class _DriverShellState extends State<DriverShell> {
     };
     return Scaffold(
       body: body,
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: !_isDriver ? null : NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: _open,
         backgroundColor: Colors.white,

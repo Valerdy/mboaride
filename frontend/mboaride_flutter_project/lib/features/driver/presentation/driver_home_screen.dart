@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/mboa_logo.dart';
+import 'become_driver_view.dart';
 import '../../../core/mboa_theme.dart';
 import '../../../services/session.dart';
 import '../../notifications/notifications.dart';
@@ -24,10 +25,14 @@ class DriverHomeScreen extends StatefulWidget {
     this.showMapTiles = true,
     this.walletRepository,
     this.notifications,
+    this.onRoleKnown,
   });
 
   final DriverRepository repository;
   final bool showMapTiles;
+
+  /// Prévient l'espace conducteur si la personne est (ou non) déjà conductrice, pour masquer ses onglets.
+  final ValueChanged<bool>? onRoleKnown;
   final PaymentRepository? walletRepository;
   final NotificationsRepository? notifications;
 
@@ -42,6 +47,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   late Future<DriverOverview> _loading = widget.repository.overview();
 
   void _reload() => setState(() { _loading = widget.repository.overview(); });
+
+  /// Signale le rôle à l'espace conducteur et dit si l'accueil complet est permis.
+  bool _announce(DriverOverview overview) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => widget.onRoleKnown?.call(overview.isDriver));
+    return overview.isDriver;
+  }
 
   Future<void> _push(Widget screen) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
@@ -73,7 +84,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       body: AsyncView<DriverOverview>(
         future: _loading,
         onRetry: _reload,
-        builder: (context, overview) => RefreshIndicator(
+        builder: (context, overview) => !_announce(overview)
+            ? BecomeDriverView(repository: widget.repository, onChanged: _reload)
+            : RefreshIndicator(
           onRefresh: () async => _reload(),
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
