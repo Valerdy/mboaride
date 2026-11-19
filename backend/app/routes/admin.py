@@ -30,7 +30,7 @@ from fastapi.responses import Response
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, model_validator
 
-from .. import config, parametres
+from .. import config, parametres, pieces
 from .. import portefeuille as pf
 from ..db import get_conn
 from ..notifications import envoyer_courriel, notifier
@@ -330,15 +330,15 @@ def reactiver(uid: int, body: Motif, a: dict = SUPPORT, conn: psycopg.Connection
 def _documents(conn, uid: int) -> list[dict]:
     deposes = {r["type_document"]: r for r in conn.execute(
         """SELECT d.type_document, d.statut, d.depose_le, d.expire_le, d.motif_refus, d.verifie_le,
-                  v.prenom || ' ' || v.nom AS verifie_par
+                  d.chemin_fichier, v.prenom || ' ' || v.nom AS verifie_par
              FROM document_agrement d LEFT JOIN utilisateur v ON v.id_utilisateur = d.verifie_par
             WHERE d.id_utilisateur = %s""", (uid,)).fetchall()}
     out = []
     for code, libelle in PIECES.items():
         d = deposes.get(code)
         out.append({"type": code, "libelle": libelle, "statut": d["statut"] if d else "manquant",
-                    **({k: d[k] for k in ("depose_le", "expire_le", "motif_refus", "verifie_le", "verifie_par")}
-                       if d else {})})
+                    **({**{k: d[k] for k in ("depose_le", "expire_le", "motif_refus", "verifie_le", "verifie_par")},
+                        **pieces.description(d["chemin_fichier"])} if d else {})})
     return out
 
 
@@ -419,6 +419,13 @@ def verifier_piece(uid: int, type_document: str, body: Decision, a: dict = SUPPO
                      "verifie_par = %s, verifie_le = now() WHERE id_document = %s",
                      (expire, a["id_utilisateur"], d["id_document"]))
         resume = f"{libelle} de {u['prenom']} {u['nom']} validée (jusqu'au {expire:%d/%m/%Y})"
+        restantes = len(PIECES) - conn.execute(
+            "SELECT count(*) n FROM document_agrement WHERE id_utilisateur = %s AND statut = 'valide' "
+            "AND (expire_le IS NULL OR expire_le >= CURRENT_DATE)", (uid,)).fetchone()["n"]
+        if restantes:
+            notifier(conn, uid, "administration",
+                     f"{libelle} validée. Il reste {restantes} pièce{'s' if restantes > 1 else ''} "
+                     f"à faire valider ou à déposer pour activer votre agrément.")
     else:
         conn.execute("UPDATE document_agrement SET statut = 'refuse', motif_refus = %s, verifie_par = %s, "
                      "verifie_le = now() WHERE id_document = %s", (body.motif, a["id_utilisateur"], d["id_document"]))
@@ -429,6 +436,27 @@ def verifier_piece(uid: int, type_document: str, body: Decision, a: dict = SUPPO
     journaliser(conn, a, f"piece_{body.decision}", "utilisateur", uid, resume, piece=type_document,
                 statut_agrement=statut)
     return {"id_utilisateur": uid, "statut_agrement": statut, "documents": _documents(conn, uid)}
+
+
+@router.get("/agrements/{uid}/documents/{type_document}/fichier")
+def fichier_piece(uid: int, type_document: str, a: dict = SUPPORT,
+                  conn: psycopg.Connection = Depends(get_conn)) -> Response:
+    """Le fichier déposé par le conducteur, pour que l'administrateur le vérifie."""
+    if type_document not in PIECES:
+        raise HTTPException(404, f"Pièce inconnue : {type_document}")
+    u = _utilisateur(conn, uid)
+    d = conn.execute("SELECT chemin_fichier FROM document_agrement WHERE id_utilisateur = %s AND type_document = %s",
+                     (uid, type_document)).fetchone()
+    if d is None:
+        raise HTTPException(404, "Cette pièce n'a pas été déposée")
+    lu = pieces.lire(d["chemin_fichier"])
+    if lu is None:
+        raise HTTPException(404, "Aucun fichier pour cette pièce : elle a été déposée avant l'envoi de fichiers")
+    contenu, mime = lu
+    journaliser(conn, a, "piece_consultee", "utilisateur", uid,
+                f"{PIECES[type_document]} de {u['prenom']} {u['nom']} consultée", piece=type_document)
+    return Response(contenu, media_type=mime, headers={"Cache-Control": "private, no-store",
+                                                       "X-Content-Type-Options": "nosniff"})
 
 
 class ChangementAgrement(Motif):

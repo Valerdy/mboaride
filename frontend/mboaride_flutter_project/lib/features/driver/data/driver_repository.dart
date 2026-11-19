@@ -7,8 +7,9 @@ abstract class DriverRepository {
 
   Future<Approval> approval();
 
-  /// Dépôt d'une pièce : elle passe « en vérification ».
-  Future<Approval> uploadDocument(String kind);
+  /// Dépôt d'une pièce (le fichier est envoyé) : elle passe « en vérification » jusqu'à la décision
+  /// d'un administrateur MboaRide.
+  Future<Approval> uploadDocument(String kind, PickedDocument file);
 
   Future<Vehicle> vehicle();
   Future<Vehicle> saveVehicle(Vehicle vehicle);
@@ -191,6 +192,7 @@ class ApiDriverRepository implements DriverRepository {
           status: switch (doc['statut']) {
             'valide' => DocumentStatus.validated,
             'depose' => DocumentStatus.pending,
+            'refuse' => DocumentStatus.rejected,
             _ => DocumentStatus.missing,
           },
           detail: doc['detail'] as String?,
@@ -203,8 +205,13 @@ class ApiDriverRepository implements DriverRepository {
       _approval(await _client.get('$_base/agrement') as Map<String, dynamic>);
 
   @override
-  Future<Approval> uploadDocument(String kind) async => _approval(
-    await _client.post('$_base/agrement/documents/${documentCodes[kind] ?? kind}') as Map<String, dynamic>,
+  Future<Approval> uploadDocument(String kind, PickedDocument file) async => _approval(
+    await _client.postBytes(
+          '$_base/agrement/documents/${documentCodes[kind] ?? kind}',
+          file.bytes,
+          contentType: file.contentType,
+        )
+        as Map<String, dynamic>,
   );
 
   @override
@@ -536,7 +543,7 @@ class FakeDriverRepository implements DriverRepository {
   }
 
   @override
-  Future<Approval> uploadDocument(String kind) async {
+  Future<Approval> uploadDocument(String kind, PickedDocument file) async {
     await _wait();
     _approval = Approval([
       for (final d in _approval.documents)

@@ -17,3 +17,6 @@ build/
 *.sqlite3
 .pgdata/
 lancement.log
+
+# Fichiers déposés par les utilisateurs (pièces d'agrément) : jamais dans Git
+backend/stockage/

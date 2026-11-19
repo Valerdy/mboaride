@@ -4,6 +4,7 @@ import '../app_services.dart';
 import '../features/driver/presentation/driver_shell.dart';
 import '../services/auth_service.dart';
 import 'request_ride_screen.dart';
+import '../core/mboa_logo.dart';
 import '../core/mboa_theme.dart';
 
 /// Écran ouvert après la connexion : la demande de trajet (passager), ou directement
@@ -249,6 +250,8 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const MboaLogo(chip: true, height: 34),
+                const SizedBox(height: 16),
                 Text(
                   _isLoginMode ? 'Se connecter' : 'Créer mon compte',
                   style: const TextStyle(

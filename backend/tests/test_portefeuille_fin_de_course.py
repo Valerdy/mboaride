@@ -8,6 +8,7 @@ les deux n'ont pas validé la fin de la course ; ensuite il reçoit le prix moin
 from __future__ import annotations
 
 import pytest
+from conftest import PIECE, PNG
 
 from app import config
 from test_parcours_complet import prochain_jour_ouvre
@@ -29,7 +30,7 @@ def equipage(client, sql, secret_partage, monkeypatch):  # noqa: F811
     for n in h.values():
         client.post("/api/moi/profil", headers=n)
     for piece in ("piece_identite", "permis", "casier_judiciaire", "assurance"):
-        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers=h["kevin"])
+        client.post(f"/api/moi/conducteur/agrement/documents/{piece}", headers={**h["kevin"], **PIECE}, content=PNG)
     client.put("/api/moi/conducteur/vehicule", headers=h["kevin"], json={
         "marque_modele": "Toyota Corolla grise", "immatriculation": "LT 601 AA", "places_passagers": 3,
         "conso_l_100km": 8})

@@ -56,43 +56,47 @@ Puis :
 
 ---
 
-## À chaque fois : lancer le projet
+## À chaque fois : tout lancer en deux commandes
 
-### 1. Mettre le code à jour
+Brancher le téléphone en USB (débogage USB autorisé), puis, dans PowerShell à la racine
+du dépôt :
 
 ```powershell
 git pull origin develop
+powershell -ExecutionPolicy Bypass -File scripts\lancer_tout.ps1 -Apps
 ```
 
-### 2. Allumer l'émulateur et brancher le téléphone
-
-```powershell
-& "$env:ANDROID_HOME\emulator\emulator.exe" -list-avds          # noms des émulateurs
-& "$env:ANDROID_HOME\emulator\emulator.exe" -avd Pixel_7_Pro     # le démarrer (laisser la fenêtre ouverte)
-```
-
-Brancher le téléphone en USB, débogage USB autorisé, puis vérifier :
-
-```powershell
-adb devices          # chaque appareil doit être « device » (pas « unauthorized »)
-```
-
-### 3. Démarrer la base et les deux API
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\lancer_tout.ps1
-```
-
-Le script fait tout seul :
+C'est tout. Le script fait, dans l'ordre :
 
 1. il prépare Python et la base `mboaride` (création ou mise à niveau) ;
 2. il ouvre deux fenêtres, **« MboaRide - API Node »** (port 8101) et **« MboaRide - API
    Python »** (port 8000). **Il faut les laisser ouvertes** : les fermer arrête MboaRide ;
-3. il relie le téléphone et l'émulateur au PC.
+3. il démarre l'émulateur s'il n'est pas déjà allumé (une à deux minutes) ;
+4. il relie le téléphone et l'émulateur au PC (`adb reverse`) ;
+5. il ouvre deux fenêtres **« MboaRide - Client »** et **« MboaRide - Chauffeur »** qui
+   compilent et installent les applications :
+   - **client sur le téléphone** branché ;
+   - **chauffeur sur l'émulateur** (il s'ouvre directement sur l'espace conducteur).
 
-Il se termine par « MboaRide tourne. ».
+La première compilation prend quelques minutes, les suivantes sont plus rapides. Les
+applications s'ouvrent toutes seules sur chaque appareil.
 
-### 4. Ouvrir la console web
+Variantes :
+
+```powershell
+# Client sur l'émulateur et chauffeur sur le téléphone (services déjà lancés)
+powershell -ExecutionPolicy Bypass -File scripts\lancer_apps.ps1 -Inverser
+
+# Seulement les services, sans les applications
+powershell -ExecutionPolicy Bypass -File scripts\lancer_tout.ps1
+
+# Seulement les applications (les services tournent déjà)
+powershell -ExecutionPolicy Bypass -File scripts\lancer_apps.ps1
+```
+
+Si aucun téléphone n'est branché, les deux applications se lancent sur l'émulateur.
+
+### Ouvrir la console web
 
 ```powershell
 Start-Process http://localhost:8000/admin    # console d'administration de MboaRide
@@ -123,35 +127,20 @@ clôture automatique des courses, validité des pièces, validité du code de v�
 s'appliquent en quelques secondes, sans relancer. Ils remplacent les variables
 d'environnement correspondantes (`OTP_MINUTES`, `MBOARIDE_VALIDATION_AUTO_HEURES`).
 
-Le lanceur valide automatiquement les pièces d'agrément déposées (`MBOARIDE_AGREMENT_AUTO=1`,
-pratique en démonstration) : pour essayer la vérification des pièces dans la console, le
-retirer de `scripts/lancer_tout.ps1`.
+**Pièces d'agrément.** Le conducteur dépose ses quatre pièces en photo depuis l'application.
+Elles apparaissent dans la page « Agréments » de la console, où « Voir le fichier » ouvre la
+photo ; l'administrateur valide ou refuse chaque pièce, et le conducteur est prévenu de
+chaque décision. Les fichiers sont rangés dans `backend/stockage/` (jamais envoyé sur
+GitHub) ; `MBOARIDE_STOCKAGE` change ce dossier. Les pièces des comptes créés avant cette
+fonction n'ont pas de fichier : la console l'indique.
 
-### 5. Lancer l'application
+### Le code de vérification
 
-```powershell
-cd frontend\mboaride_flutter_project
-flutter devices          # doit lister emulator-5554 et le Pixel 7 Pro (2B241FDH3000YX)
-```
+Tant que `SMTP_USER` et `SMTP_PASS` sont vides dans `.env.local`, le code d'un nouveau
+compte s'affiche dans l'application et dans la fenêtre « MboaRide - API Node ».
 
-Client, sur l'émulateur :
-
-```powershell
-flutter run -d emulator-5554 --dart-define=API_URL=http://127.0.0.1:8000 --dart-define=AUTH_URL=http://127.0.0.1:8101
-```
-
-Chauffeur, sur le téléphone, le Pixel 7 Pro `2B241FDH3000YX` (dans un deuxième PowerShell,
-même dossier) :
-
-```powershell
-flutter run -d 2B241FDH3000YX --dart-define=API_URL=http://127.0.0.1:8000 --dart-define=AUTH_URL=http://127.0.0.1:8101 --dart-define=START=driver
-```
-
-`START=driver` ouvre directement l'espace conducteur après la connexion. Sans lui, le
-conducteur y accède par le menu ☰ > « Espace conducteur ».
-
-C'est prêt. Le code de vérification d'un nouveau compte s'affiche dans l'application et
-dans la fenêtre « MboaRide - API Node ».
+Le chauffeur est lancé avec `START=driver`, qui ouvre directement l'espace conducteur après
+la connexion. Sans lui, le conducteur y accède par le menu ☰ > « Espace conducteur ».
 
 ---
 
@@ -159,8 +148,11 @@ dans la fenêtre « MboaRide - API Node ».
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\arreter_tout.ps1     # arrêter les deux API
-powershell -ExecutionPolicy Bypass -File scripts\lancer_tout.ps1      # tout relancer
+powershell -ExecutionPolicy Bypass -File scripts\lancer_tout.ps1 -Apps   # tout relancer
 ```
+
+`arreter_tout.ps1` arrête les deux API. Les fenêtres « flutter run » se ferment avec `q`,
+et l'émulateur avec la croix de sa fenêtre.
 
 À relancer aussi quand une des deux fenêtres d'API a été fermée, ou après un `git pull`
 qui modifie le serveur (la base est mise à niveau au passage).
@@ -206,6 +198,7 @@ Les tests de l'API Python ont besoin d'une base PostgreSQL de test : voir
 |---|---|
 | « Impossible de joindre le serveur » dans l'application | `scripts\relier_android.ps1`, puis vérifier que les deux fenêtres d'API sont ouvertes |
 | `PG_PASSWORD est vide` au lancement | remplir `PG_PASSWORD` dans `.env.local` |
+| une application ne se lance pas sur un appareil | `adb devices` doit le montrer en « device » ; sinon rebrancher le câble ou redémarrer l'émulateur, puis `scripts\lancer_apps.ps1` |
 | une API ne démarre pas (port occupé) | `scripts\arreter_tout.ps1`, puis `scripts\lancer_tout.ps1` |
 | téléphone `unauthorized` dans `adb devices` | accepter « Autoriser le débogage USB » sur le téléphone |
 | « Building with plugins requires symlink support » | activer le mode développeur de Windows |

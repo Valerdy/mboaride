@@ -21,6 +21,7 @@ import '../services/session.dart';
 import '../features/ride_request/data/ride_request_repository.dart';
 import '../features/ride_request/domain/ride_request.dart';
 import 'profile_screen.dart';
+import '../core/mboa_logo.dart';
 import '../core/mboa_theme.dart';
 
 class RequestRideScreen extends StatefulWidget {
@@ -445,6 +446,8 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                 child: const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    MboaLogo(chip: true, height: 34),
+                    SizedBox(height: 14),
                     Text(
                       'MboaRide',
                       style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
