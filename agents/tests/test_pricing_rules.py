@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from mboaride_agents.pricing import (OCCUPANTS, OFFERED_SEATS, SHARED_LEG,
+from mboaride_agents.pricing import (DRIVER_ROUTE, OCCUPANTS, OFFERED_SEATS, PRODUCT_POLICY, SHARED_LEG,
                                      SHARED_LEG_PLUS_DETOUR, WHOLE_TRIP, PricingPolicy, quote)
 
 # 10 km partagés, 2 km de détour, 18 km parcourus par le conducteur, 8 L/100 km à
@@ -51,9 +51,29 @@ def test_partager_le_trajet_entier_fait_payer_ce_que_le_passager_n_a_pas_parcour
 
 def test_sans_detour_ni_trajet_connus_le_calcul_retombe_sur_le_troncon_commun():
     sans_contexte = {k: v for k, v in CAS.items() if k not in ("detour_m", "trip_distance_m")}
-    for regle in (SHARED_LEG_PLUS_DETOUR, WHOLE_TRIP):
+    for regle in (SHARED_LEG_PLUS_DETOUR, WHOLE_TRIP, DRIVER_ROUTE):
         devis = quote(PricingPolicy(divisor_rule=OCCUPANTS, cost_basis=regle), **sans_contexte)
         assert devis.fuel_cost == 672
+
+
+def test_la_regle_du_produit_fait_payer_la_meme_somme_a_tous_les_passagers():
+    """Même trajet de conducteur : la montée, le détour, la distance parcourue et l'ordre des réservations
+    ne changent pas le prix d'une place."""
+    prix = set()
+    for commun, detour, reserves in ((10_000, 2_000, 0), (3_000, 0, 1), (16_000, 4_000, 2), (800, 500, 0)):
+        devis = quote(PRODUCT_POLICY, **{**CAS, "shared_distance_m": commun, "detour_m": detour,
+                                         "seats_booked": reserves, "direct_distance_m": TRAJET_M - DETOUR_M})
+        prix.add((devis.price, devis.commission, devis.divisor))
+    assert len(prix) == 1
+    (somme, _, diviseur), = prix
+    assert diviseur == 4 and somme % 25 == 0                  # conducteur + 3 places, pièces de 25 FCFA
+
+
+def test_la_regle_du_produit_partage_le_trajet_direct_du_conducteur():
+    devis = quote(PricingPolicy(divisor_rule=OFFERED_SEATS, cost_basis=DRIVER_ROUTE),
+                  **{**CAS, "direct_distance_m": 16_000})
+    assert devis.fuel_cost == 1075         # 16 km x 8 L/100 km x 840 FCFA
+    assert devis.divisor == 4
 
 
 def test_une_regle_inconnue_est_refusee():

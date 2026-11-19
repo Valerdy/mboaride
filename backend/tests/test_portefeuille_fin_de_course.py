@@ -85,9 +85,9 @@ def test_portefeuille_course_et_versement(client, sql, equipage):
     assert pf["solde_fcfa"] == 2000 - offre_lina["prix_fcfa"]
     assert pf["paiements_en_sequestre_fcfa"] == offre_lina["prix_fcfa"]
 
-    # --- Paul part de Logpom aussi : la voiture se remplit, il paie moins que s'il était seul.
+    # --- Paul part de Logpom aussi : la voiture se remplit, mais il paie la même somme que Lina.
     offre_paul, resa_paul = _reserver(client, h, "paul", logpom)
-    assert offre_paul["passagers_deja_a_bord"] == 1 and offre_paul["prix_fcfa"] < offre_lina["prix_fcfa"]
+    assert offre_paul["passagers_deja_a_bord"] == 1 and offre_paul["prix_fcfa"] == offre_lina["prix_fcfa"]
     compte_paul = client.post("/api/moi/comptes-mobile-money", headers=h["paul"], json={
         "operateur": "orange", "telephone": "699000603", "titulaire": "Paul Mbarga"}).json()
     client.post(f"/api/paiements/{resa_paul['id_paiement']}/mobile-money", headers=h["paul"],

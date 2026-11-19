@@ -33,7 +33,7 @@ def mes_reservations(u: dict = Depends(utilisateur_courant),
                      conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
     rows = conn.execute(
         """SELECT r.id_reservation, r.statut, r.date_trajet, r.heure_prise_en_charge, r.heure_arrivee_estimee,
-                  r.prix_fcfa, r.niveau_cercle, d.depart_libelle, d.arrivee_libelle,
+                  r.prix_fcfa, r.nb_places, r.niveau_cercle, d.depart_libelle, d.arrivee_libelle,
                   t.id_trajet, uc.prenom AS conducteur, uc.telephone AS conducteur_telephone,
                   v.marque_modele, v.immatriculation, t.depart_libelle AS trajet_depart,
                   t.point_ramassage, t.consignes_ramassage, r.fin_validee_le,
@@ -56,7 +56,7 @@ def mes_reservations(u: dict = Depends(utilisateur_courant),
         "trajet": f"{r['depart_libelle']} → {r['arrivee_libelle']}",
         "prise_en_charge": r["heure_prise_en_charge"].strftime("%H:%M"),
         "arrivee": r["heure_arrivee_estimee"].strftime("%H:%M"),
-        "prix_fcfa": r["prix_fcfa"], "cercle": r["niveau_cercle"],
+        "prix_fcfa": r["prix_fcfa"], "nb_places": r["nb_places"], "cercle": r["niveau_cercle"],
         "conducteur": r["conducteur"], "vehicule": f"{r['marque_modele']} · {r['immatriculation']}",
         "id_paiement": r["id_paiement"], "statut_paiement": r["statut_paiement"],
         "operateur": ("Portefeuille MboaRide" if r["moyen"] == "portefeuille"

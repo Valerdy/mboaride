@@ -51,6 +51,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
   /// Avec qui voyager : tout MboaRide par défaut, pour voir tous les conducteurs agréés.
   Circle _circle = Circle.public;
   bool _silence = false;
+  int _seats = 1;
   bool _isLoading = false;
   bool _isRouteLoading = false;
   bool _selectingOriginOnMap = true;
@@ -365,6 +366,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
             if (_silence) Comfort.quiet,
           },
           circleCode: _circle.code,
+          seats: _seats,
         ),
       );
       if (!mounted) return;
@@ -714,7 +716,7 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                       Expanded(
                         flex: 4,
                         child: _buildCardBlock(
-                          title: 'Prix max',
+                          title: 'Prix max / place',
                           icon: Icons.payments_outlined,
                           child: TextField(
                             controller: _priceController,
@@ -731,6 +733,42 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
                         ),
                       ),
                     ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  _buildCardBlock(
+                    title: 'Places à réserver',
+                    icon: Icons.event_seat_outlined,
+                    child: Row(
+                      children: [
+                        IconButton.filledTonal(
+                          tooltip: 'Moins de places',
+                          onPressed: _seats > 1 ? () => setState(() => _seats--) : null,
+                          icon: const Icon(Icons.remove_rounded),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            '$_seats',
+                            key: const ValueKey('nombre-de-places'),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: primaryGreen),
+                          ),
+                        ),
+                        IconButton.filledTonal(
+                          tooltip: 'Plus de places',
+                          onPressed: _seats < RideRequestRules.maxSeats ? () => setState(() => _seats++) : null,
+                          icon: const Icon(Icons.add_rounded),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Vous et vos proches : chaque place coûte le même prix.',
+                            style: TextStyle(fontSize: 12, color: Colors.black54),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
 
                   const SizedBox(height: 14),

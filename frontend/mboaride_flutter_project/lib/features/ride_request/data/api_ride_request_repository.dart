@@ -22,6 +22,7 @@ class ApiRideRequestRepository implements RideRequestRepository {
       'arrivee_au_plus_tard': '${two(end.hour)}:${two(end.minute)}',
       'date_trajet': '${start.year}-${two(start.month)}-${two(start.day)}',
       'prix_max_fcfa': request.maxPriceFcfa,
+      'nb_places': request.seats,
       'clim_obligatoire': request.comforts.contains(Comfort.airConditioning),
       if (request.circleCode != null) 'cercle_max': request.circleCode,
     };

@@ -1354,7 +1354,7 @@
         <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
           <label class="field"><span>Distance (km)</span><input type="number" id="s-km" value="10" min="1" max="500"></label>
           <label class="field"><span>L / 100 km</span><input type="number" id="s-conso" value="7.5" step="0.5" min="1" max="30"></label>
-          <label class="field"><span>Passagers</span><input type="number" id="s-pass" value="2" min="1" max="8"></label></div>
+          <label class="field"><span>Places offertes</span><input type="number" id="s-pass" value="3" min="1" max="8"></label></div>
         <div id="simulation"></div></div>
     </div>`;
     if (matchMedia('(max-width: 900px)').matches) $('#cols').style.gridTemplateColumns = 'minmax(0,1fr)';
@@ -1373,7 +1373,7 @@
         }
         try {
           const s = await api('/api/admin/parametres/simulation', { methode: 'POST', corps: { valeurs: ch,
-            distance_km: Number($('#s-km').value) || 10, conso_l_100km: Number($('#s-conso').value) || 7.5, passagers: Number($('#s-pass').value) || 2 } });
+            distance_km: Number($('#s-km').value) || 10, conso_l_100km: Number($('#s-conso').value) || 7.5, passagers: Number($("#s-pass").value) || 3 } });
           const ligne = (l, k) => {
             const a = s.actuel[k], b = s.propose[k];
             return `<tr><td>${l}</td><td class="r num">${fcfa(a)}</td><td class="r num"><b>${fcfa(b)}</b>${b !== a ? `<div class="small" style="color:${b > a ? 'var(--warn)' : 'var(--good)'}">${b > a ? '+' : ''}${nb(b - a)}</div>` : ''}</td></tr>`;

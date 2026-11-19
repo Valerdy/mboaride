@@ -87,7 +87,7 @@ def mes_demandes(u: dict = Depends(utilisateur_courant),
         """SELECT id_demande, depart_libelle, arrivee_libelle, type_trajet, statut, prix_max_fcfa,
                   to_char(arrivee_au_plus_tot, 'HH24:MI') AS arrivee_au_plus_tot,
                   to_char(arrivee_au_plus_tard, 'HH24:MI') AS arrivee_au_plus_tard,
-                  date_unique, jours_semaine, cercle_max, mode_reservation
+                  date_unique, jours_semaine, cercle_max, mode_reservation, nb_places
              FROM demande WHERE id_demandeur = %s
             ORDER BY (statut = 'ouverte') DESC, id_demande DESC""", (u["id_utilisateur"],)).fetchall()
 

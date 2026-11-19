@@ -103,8 +103,9 @@ class _PriceConfirmationScreenState extends State<PriceConfirmationScreen> {
     }
   }
 
+  /// Le budget du passager est un prix par place.
   bool get _withinBudget =>
-      widget.offer.maxPriceFcfa == 0 || _priceFcfa <= widget.offer.maxPriceFcfa;
+      widget.offer.maxPriceFcfa == 0 || _priceFcfa ~/ widget.offer.seats <= widget.offer.maxPriceFcfa;
 
   @override
   Widget build(BuildContext context) {
@@ -226,8 +227,8 @@ class _PriceConfirmationScreenState extends State<PriceConfirmationScreen> {
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
                     _withinBudget
-                        ? 'Votre maximum : ${formatFcfa(offer.maxPriceFcfa)}'
-                        : 'Au-dessus de votre maximum de ${formatFcfa(offer.maxPriceFcfa)}',
+                        ? 'Votre maximum : ${formatFcfa(offer.maxPriceFcfa)} par place'
+                        : 'Au-dessus de votre maximum de ${formatFcfa(offer.maxPriceFcfa)} par place',
                     style: TextStyle(
                       fontSize: 13,
                       color: _withinBudget

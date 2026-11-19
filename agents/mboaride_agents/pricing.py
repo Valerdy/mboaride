@@ -26,6 +26,15 @@ trajet entier du conducteur (`WHOLE_TRIP`) couvrirait davantage encore, mais fer
 payer à un passager monté pour trois kilomètres une part des vingt kilomètres du
 conducteur, et la moitié des demandes ne trouveraient plus d'équipage.
 
+Règle du produit depuis novembre 2026 : tous les passagers d'un même équipage (un trajet, un
+jour) paient la même somme, quels que soient leur point de montée, leur détour et l'ordre dans
+lequel ils réservent. Le coût du trajet direct du conducteur (`DRIVER_ROUTE`) est partagé à
+parts égales entre le conducteur et toutes les places offertes (`OFFERED_SEATS`). Le prix d'une
+place est donc connu dès la publication du trajet et ne bouge plus. Contrepartie, mesurée par
+`scripts/comparer_regles_prix.py` : un passager qui ne fait qu'une partie du trajet paie la même
+part qu'un passager qui le fait en entier, et un conducteur dont la voiture n'est pas pleine ne
+couvre qu'une partie de ses frais.
+
 Le défaut de ce module reste l'ancienne règle (`SHARED_LEG` + `OFFERED_SEATS`), celle
 de l'exemple du document de vision et des messages documentés : l'application choisit
 sa politique explicitement (voir `app/moteur.py`), et `scripts/comparer_regles_prix.py`
@@ -49,8 +58,10 @@ OCCUPANTS = "OCCUPANTS"
 SHARED_LEG = "SHARED_LEG"
 # ...ce tronçon plus le détour que ce passager impose au conducteur...
 SHARED_LEG_PLUS_DETOUR = "SHARED_LEG_PLUS_DETOUR"
-# ...ou le trajet entier du conducteur, détour compris (étudié dans le bilan SR-51).
+# ...ou le trajet entier du conducteur, détour compris (étudié dans le bilan SR-51)...
 WHOLE_TRIP = "WHOLE_TRIP"
+# ...ou son trajet direct A -> B, sans détour : le même pour tous les passagers, donc le même prix.
+DRIVER_ROUTE = "DRIVER_ROUTE"
 
 
 def round_half_up(value: Fraction) -> int:
@@ -74,7 +85,7 @@ class PricingPolicy:
     def __post_init__(self):
         if self.divisor_rule not in (OFFERED_SEATS, OCCUPANTS):
             raise ValueError(f"Règle de diviseur inconnue : {self.divisor_rule}")
-        if self.cost_basis not in (SHARED_LEG, SHARED_LEG_PLUS_DETOUR, WHOLE_TRIP):
+        if self.cost_basis not in (SHARED_LEG, SHARED_LEG_PLUS_DETOUR, WHOLE_TRIP, DRIVER_ROUTE):
             raise ValueError(f"Base de coût inconnue : {self.cost_basis}")
         if self.rounding_step < 1:
             raise ValueError("Le pas d'arrondi doit être d'au moins 1 FCFA")
@@ -97,20 +108,23 @@ class Quote:
 def quote(policy: PricingPolicy, *, shared_distance_m: int, consumption_l_per_100km: float,
           tolls: int, seats_total: int, seats_booked: int, seats_requested: int,
           min_price: int, with_commission: bool, detour_m: int | None = None,
-          trip_distance_m: int | None = None) -> Quote:
+          trip_distance_m: int | None = None, direct_distance_m: int | None = None) -> Quote:
     """Prix proposé à un passager.
 
     `detour_m` est le détour imposé par ce passager et `trip_distance_m` le trajet
     réellement parcouru par le conducteur (`Detour.trip_distance_m`). Selon la règle
     de `policy.cost_basis`, le coût porte sur le tronçon commun, sur ce tronçon plus
-    le détour, ou sur le trajet entier ; une valeur absente fait retomber le calcul
-    sur le tronçon commun.
+    le détour, sur le trajet entier, ou sur le trajet direct du conducteur
+    (`direct_distance_m`, le même pour tous ses passagers) ; une valeur absente fait retomber
+    le calcul sur le tronçon commun.
     """
     base_m = shared_distance_m
     if policy.cost_basis == SHARED_LEG_PLUS_DETOUR:
         base_m = shared_distance_m + (detour_m or 0)
     elif policy.cost_basis == WHOLE_TRIP and trip_distance_m:
         base_m = trip_distance_m
+    elif policy.cost_basis == DRIVER_ROUTE and direct_distance_m:
+        base_m = direct_distance_m
     fuel_exact = (Fraction(base_m, 1000) * Fraction(str(consumption_l_per_100km)) / 100
                   * policy.fuel_price_per_l)
     fuel_cost = round_half_up(fuel_exact)
@@ -132,11 +146,14 @@ def quote(policy: PricingPolicy, *, shared_distance_m: int, consumption_l_per_10
                  commission=commission)
 
 
-# Règle retenue pour le produit (SR-51) : tronçon commun + détour imposé, partagé entre
-# les occupants à bord. Le service agents et l'API FastAPI l'importent d'ici, pour que
-# les deux annoncent le même prix pour le même trajet.
+# Règle du produit : même somme pour tous les passagers d'un équipage (trajet direct du
+# conducteur partagé entre le conducteur et toutes les places offertes). La règle mesurée dans le
+# bilan SR-51 (tronçon commun + détour, partagé entre les occupants à bord) reste disponible avec
+# AGENTS_PRICING_COST_BASIS=SHARED_LEG_PLUS_DETOUR et AGENTS_PRICING_DIVISOR=OCCUPANTS. Le service
+# agents et l'API FastAPI importent PRODUCT_POLICY d'ici, pour que les deux annoncent le même prix
+# pour le même trajet.
 # Tarif (novembre 2026) : MboaRide prélève 10 % sur chaque trajet, quel que soit le cercle ;
 # le prix est arrondi aux 25 FCFA supérieurs (la monnaie rendue en pièces de 25) et un trajet
 # coûte au moins 100 FCFA.
-PRODUCT_POLICY = PricingPolicy(divisor_rule=OCCUPANTS, cost_basis=SHARED_LEG_PLUS_DETOUR,
+PRODUCT_POLICY = PricingPolicy(divisor_rule=OFFERED_SEATS, cost_basis=DRIVER_ROUTE,
                                commission_on_every_trip=True, rounding_step=25, min_fare=100)

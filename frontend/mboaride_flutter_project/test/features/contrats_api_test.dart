@@ -87,6 +87,7 @@ void main() {
         windowEnd: DateTime(2026, 11, 18, 7, 55),
         maxPriceFcfa: 800,
         comforts: const {rr.Comfort.airConditioning},
+        seats: 2,
       ),
     );
     expect(body, {
@@ -96,6 +97,7 @@ void main() {
       'arrivee_au_plus_tard': '07:55',
       'date_trajet': '2026-11-18',
       'prix_max_fcfa': 800,
+      'nb_places': 2,
       'clim_obligatoire': true,
     });
   });

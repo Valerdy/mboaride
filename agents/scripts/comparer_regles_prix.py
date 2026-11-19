@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mboaride_agents.pricing import (FUEL_PRICE_FCFA_PER_L, OCCUPANTS, OFFERED_SEATS,
+from mboaride_agents.pricing import (DRIVER_ROUTE, FUEL_PRICE_FCFA_PER_L, OCCUPANTS, OFFERED_SEATS,
                                      SHARED_LEG, SHARED_LEG_PLUS_DETOUR, WHOLE_TRIP,
                                      PricingPolicy)
 from mboaride_agents.scenarios import SCENARIOS
@@ -41,6 +41,8 @@ REGLES = {
           PricingPolicy(divisor_rule=OCCUPANTS, cost_basis=SHARED_LEG_PLUS_DETOUR)),
     "D": ("trajet entier du conducteur ÷ occupants à bord",
           PricingPolicy(divisor_rule=OCCUPANTS, cost_basis=WHOLE_TRIP)),
+    "E": ("trajet direct du conducteur ÷ places offertes (règle du produit : même prix pour tous)",
+          PricingPolicy(divisor_rule=OFFERED_SEATS, cost_basis=DRIVER_ROUTE)),
 }
 
 

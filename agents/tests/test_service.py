@@ -1,4 +1,5 @@
 """Service agents : le moteur exposé en HTTP, tel que l'API de l'application l'appelle."""
+import asyncio
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -10,13 +11,15 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from mboaride_agents import messages  # noqa: E402
-from mboaride_agents.pricing import OCCUPANTS, OFFERED_SEATS, PRODUCT_POLICY, SHARED_LEG, PricingPolicy, quote  # noqa: E402
+from mboaride_agents.pricing import (DRIVER_ROUTE, OCCUPANTS, OFFERED_SEATS, PRODUCT_POLICY,  # noqa: E402
+                                     SHARED_LEG, SHARED_LEG_PLUS_DETOUR, PricingPolicy, quote)
+from mboaride_agents.routing import ESTIMATORS, Point  # noqa: E402
 from mboaride_agents.service import create_app, pricing_from_env  # noqa: E402
 
 EXAMPLES = json.loads((Path(__file__).resolve().parent.parent / "schemas" / "examples.json").read_text(encoding="utf-8"))
 # Kotto -> Bonanjo, 7 h 30 - 7 h 50, mode autonome. Budget porté à 600 FCFA (prix d'un taxi) : avec la
-# règle du produit, le premier passager d'une voiture vide partage les frais avec le seul conducteur
-# (environ 345 FCFA ici), au-dessus des 300 FCFA de l'exemple du protocole.
+# règle du produit, le prix d'une place (trajet du conducteur partagé entre toutes ses places) peut
+# dépasser les 300 FCFA de l'exemple du protocole.
 GRACE = {**EXAMPLES["nominal"][0]["body"], "max_price": 600}
 AT = "2026-11-10T06:15:00+01:00"
 ORG = "organization:entreprise-test"
@@ -199,16 +202,37 @@ def first_offer(client):
     return next(m["body"] for m in client.get("/negotiations/r-p042-1/messages").json() if m["type"] == "PROPOSAL")
 
 
-def expected_price(offer, policy):
+def direct_route_m(offer, origin):
+    """Trajet direct du conducteur (de son départ à Bonanjo), tel que l'estimateur le mesure."""
+    pickup = Point.from_json(offer["pickup_point"])
+    drop = Point(GRACE["destination"]["lat"], GRACE["destination"]["lng"])
+    return asyncio.run(ESTIMATORS["URBAN"].detour(origin, drop, pickup, drop)).direct_distance_m
+
+
+def expected_price(offer, policy, origin=None):
     return quote(policy, shared_distance_m=offer["shared_distance_m"], detour_m=offer["detour_m"],
+                 direct_distance_m=direct_route_m(offer, origin) if origin else None,
                  consumption_l_per_100km=8.0, tolls=0, seats_total=3, seats_booked=0, seats_requested=1,
                  min_price=0, with_commission=False).price
 
 
 def test_service_applies_the_product_pricing_rule_by_default(client):
     offer = first_offer(client)
-    assert offer["price_breakdown"]["divisor"] == 2          # conducteur + le seul passager à bord
-    assert offer["price"] == expected_price(offer, PRODUCT_POLICY)
+    assert offer["price_breakdown"]["divisor"] == 4          # conducteur + les 3 places offertes
+    # La première offre est celle de d07 (Logpom), qui part de 4.0790, 9.7740.
+    assert offer["price"] == expected_price(offer, PRODUCT_POLICY, Point(4.0790, 9.7740))
+
+
+def test_every_passenger_of_a_crew_pays_the_same_price(client):
+    """Deux passagers qui montent à des endroits différents paient chacun la même somme."""
+    def prices(passenger, **changes):
+        negotiate(client, passenger=passenger, mode="MANUAL", **changes)
+        log = client.get(f"/negotiations/r-{passenger}-1/messages").json()
+        return sorted(m["body"]["price"] for m in log if m["type"] == "PROPOSAL")
+
+    kotto = prices("p042")
+    plus_loin = prices("p043", origin={"lat": 4.0745, "lng": 9.7655})
+    assert len(kotto) == 2 and kotto == plus_loin
 
 
 def test_old_pricing_rule_is_still_available():
@@ -219,6 +243,16 @@ def test_old_pricing_rule_is_still_available():
     offer = first_offer(c)
     assert offer["price_breakdown"]["divisor"] == 4          # conducteur + 3 places offertes
     assert offer["price"] == expected_price(offer, PricingPolicy())
+
+
+def test_sr51_rule_is_still_selectable():
+    c = TestClient(create_app(pricing=replace(PRODUCT_POLICY, cost_basis=SHARED_LEG_PLUS_DETOUR,
+                                              divisor_rule=OCCUPANTS)))
+    c.post("/organizations", json={"organization_id": "entreprise-test", "members": ["passenger:p042"]})
+    for d in (D07, D03):
+        c.post("/drivers", json=d)
+    offer = first_offer(c)
+    assert offer["price_breakdown"]["divisor"] == 2          # conducteur + le seul passager à bord
 
 
 def test_pricing_rule_can_be_set_by_environment(monkeypatch):
@@ -232,4 +266,4 @@ def test_pricing_rule_can_be_set_by_environment(monkeypatch):
 
 
 def test_product_rule_is_the_one_measured_in_sr51():
-    assert (PRODUCT_POLICY.divisor_rule, PRODUCT_POLICY.cost_basis) == (OCCUPANTS, "SHARED_LEG_PLUS_DETOUR")
+    assert (PRODUCT_POLICY.divisor_rule, PRODUCT_POLICY.cost_basis) == (OFFERED_SEATS, DRIVER_ROUTE)

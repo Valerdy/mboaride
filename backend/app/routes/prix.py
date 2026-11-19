@@ -124,9 +124,9 @@ def roule_le(t: dict, jour: date) -> bool:
 
 
 def places_restantes(conn, t: dict, jour: date) -> int:
-    pris = conn.execute("SELECT count(*) n FROM reservation WHERE id_trajet = %s AND date_trajet = %s "
-                        "AND statut = 'confirmee'", (t["id_trajet"], jour)).fetchone()["n"]
-    return t["places_offertes"] - pris
+    pris = conn.execute("SELECT coalesce(sum(nb_places), 0) n FROM reservation WHERE id_trajet = %s "
+                        "AND date_trajet = %s AND statut = 'confirmee'", (t["id_trajet"], jour)).fetchone()["n"]
+    return t["places_offertes"] - int(pris)
 
 
 def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
@@ -148,6 +148,9 @@ def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
     if not req.confort_obligatoire <= drv.confort:
         raise Refus("confort", "Le véhicule ne respecte pas votre confort obligatoire (climatisation)")
     jour = jour or d["date_unique"]
+    nb = int(d.get("nb_places") or 1)
+    if nb > t["places_offertes"]:
+        raise Refus("complet", f"Ce trajet n'offre que {t['places_offertes']} place(s), vous en demandez {nb}", 409)
     deja_a_bord = 0
     if jour is not None:
         if not roule_le(t, jour):
@@ -158,20 +161,28 @@ def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
         restantes = places_restantes(conn, t, jour)
         if restantes <= 0:
             raise Refus("complet", "La voiture est déjà complète pour cette date", 409)
+        if restantes < nb:
+            raise Refus("complet", f"Il ne reste que {restantes} place(s) pour cette date, vous en demandez {nb}", 409)
         deja_a_bord = t["places_offertes"] - restantes
     det = moteur.detail_prix(drv, req, niveau, places_reservees=deja_a_bord)
     h = moteur.horaires(drv, req)
+    total, commission = det.prix_fcfa * nb, det.commission_fcfa * nb
+    detail = det.lignes()
+    if nb > 1:
+        detail.append({"libelle": f"{nb} places × {det.prix_fcfa} FCFA", "montant_fcfa": total})
     return {
         "id_demande": d["id_demande"], "id_trajet": t["id_trajet"],
         "conducteur": t["conducteur_prenom"],
         "trajet": f"{d['depart_libelle']} → {d['arrivee_libelle']}",
         "cercle": moteur.NIVEAUX[niveau],
-        "prix_fcfa": det.prix_fcfa,
-        "detail": det.lignes(),
+        "prix_fcfa": total,                       # pour toutes les places demandées
+        "prix_par_place_fcfa": det.prix_fcfa,     # le même pour tous les passagers de l'équipage
+        "nb_places": nb,
+        "detail": detail,
         "distance_km": det.distance_km,
-        "commission_fcfa": det.commission_fcfa,
-        "prix_max_fcfa": d["prix_max_fcfa"],
-        "dans_le_budget": det.prix_fcfa <= d["prix_max_fcfa"],
+        "commission_fcfa": commission,
+        "prix_max_fcfa": d["prix_max_fcfa"],       # budget par place
+        "dans_le_budget": det.prix_fcfa <= d["prix_max_fcfa"],      # comparé au prix d'une place
         "prise_en_charge": h[0] if h else None,
         "arrivee_estimee": h[1] if h else None,
         "detour_km": h[2] if h else None,
@@ -179,7 +190,7 @@ def evaluer(conn, d: dict, t: dict, jour: date | None = None) -> dict:
         "confirmable": det.prix_fcfa <= d["prix_max_fcfa"] and h is not None,
         "formule": _formule(),
         "passagers_deja_a_bord": deja_a_bord,
-        "part_conducteur_fcfa": det.prix_fcfa - det.commission_fcfa,
+        "part_conducteur_fcfa": total - commission,
         "vehicule": f"{t['marque_modele']} · {t['immatriculation']}" if t.get("marque_modele") else None,
         "point_ramassage": t.get("point_ramassage"),
         "consignes_ramassage": t.get("consignes_ramassage"),
@@ -242,7 +253,7 @@ def diagnostic(id_demande: int, u: dict = Depends(utilisateur_courant),
                 proches.append((ecart, t["conducteur_prenom"], t["depart_libelle"], h[1], arrivee))
         elif not e["dans_le_budget"]:
             motifs["budget"] = motifs.get("budget", 0) + 1
-            budget_min = min(budget_min or e["prix_fcfa"], e["prix_fcfa"])
+            budget_min = min(budget_min or e["prix_par_place_fcfa"], e["prix_par_place_fcfa"])
         else:
             confirmables += 1
 
@@ -259,7 +270,7 @@ def diagnostic(id_demande: int, u: dict = Depends(utilisateur_courant),
             break
     if budget_min:
         suggestions.append({"action": "budget", "prix_max_fcfa": budget_min,
-                            "message": f"Avec un maximum de {budget_min} FCFA, une offre devient confirmable"})
+                            "message": f"Avec un maximum de {budget_min} FCFA par place, une offre devient confirmable"})
     if proches:
         ecart, prenom, depart, arrivee_txt, arrivee = min(proches)
         debut, fin = moteur.hhmm(arrivee - 10), moteur.hhmm(arrivee + 15)
@@ -302,8 +313,8 @@ def confirmer(body: Confirmation, u: dict = Depends(utilisateur_courant),
                                              "valider le nouveau prix.",
                                   "nouveau_prix_fcfa": e["prix_fcfa"], "detail": e["detail"]})
     if not e["dans_le_budget"]:
-        raise HTTPException(422, f"Prix de {e['prix_fcfa']} FCFA supérieur à votre maximum "
-                                 f"de {d['prix_max_fcfa']} FCFA")
+        raise HTTPException(422, f"Prix de {e['prix_par_place_fcfa']} FCFA par place supérieur à votre "
+                                 f"maximum de {d['prix_max_fcfa']} FCFA")
     if not e["horaires_compatibles"]:
         raise HTTPException(422, "Arrivée hors de votre fenêtre ou détour trop long pour le conducteur")
     return reserver(conn, d, e, body.date_trajet)
@@ -315,10 +326,10 @@ def reserver(conn, d: dict, e: dict, jour: date) -> dict:
         with conn.transaction():          # point de reprise : un refus n'annule pas le reste
             r = conn.execute(
             """INSERT INTO reservation (id_demande, id_trajet, date_trajet, heure_prise_en_charge,
-                   heure_arrivee_estimee, prix_fcfa, detour_km, niveau_cercle, statut)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'confirmee') RETURNING id_reservation""",
+                   heure_arrivee_estimee, prix_fcfa, detour_km, niveau_cercle, nb_places, statut)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'confirmee') RETURNING id_reservation""",
             (d["id_demande"], e["id_trajet"], jour, e["prise_en_charge"],
-             e["arrivee_estimee"], e["prix_fcfa"], e["detour_km"], e["cercle"])).fetchone()
+             e["arrivee_estimee"], e["prix_fcfa"], e["detour_km"], e["cercle"], e["nb_places"])).fetchone()
     except psycopg.errors.UniqueViolation:
         raise HTTPException(409, "Vous avez déjà une réservation confirmée pour cette date")
     except psycopg.errors.RaiseException as exc:   # trajet complet, autorisation élève
@@ -329,5 +340,6 @@ def reserver(conn, d: dict, e: dict, jour: date) -> dict:
         (r["id_reservation"], e["prix_fcfa"], e["commission_fcfa"])).fetchone()
     conn.execute("UPDATE demande SET statut = 'satisfaite' WHERE id_demande = %s", (d["id_demande"],))
     return {"id_reservation": r["id_reservation"], "id_paiement": p["id_paiement"], "prix_fcfa": e["prix_fcfa"],
+            "nb_places": e["nb_places"], "prix_par_place_fcfa": e["prix_par_place_fcfa"],
             "prise_en_charge": e["prise_en_charge"], "arrivee_estimee": e["arrivee_estimee"],
             "paiement": "en attente : payez par Mobile Money"}

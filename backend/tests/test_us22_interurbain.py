@@ -101,3 +101,31 @@ def test_un_eleve_d_un_autre_parent_est_refuse(client, sql):
                     json={"id_point_depart": v["points_depart"][0]["id_point"],
                           "date_trajet": JOUR, "id_eleve": id_marc})
     assert r.status_code == 404
+
+
+def test_reserver_plusieurs_places_dans_un_voyage(client, sql):
+    v = _voyages(client)[0]
+    restantes = v["places_restantes"]
+    assert restantes >= 2
+    # Même prix de la place quel que soit le point de montée, deux places = deux fois ce prix.
+    corps = {"date_trajet": JOUR, "nb_places": 2}
+    r = client.post(f"/api/voyages/{v['id_trajet']}/reservations", headers=comme(GRACE),
+                    json={**corps, "id_point_depart": v["points_depart"][1]["id_point"],
+                          "prix_annonce_fcfa": v["prix_fcfa"]})          # prix d'une seule place : refusé
+    assert r.status_code == 409 and r.json()["detail"]["nouveau_prix_fcfa"] == 2 * v["prix_fcfa"]
+    r = client.post(f"/api/voyages/{v['id_trajet']}/reservations", headers=comme(GRACE),
+                    json={**corps, "id_point_depart": v["points_depart"][1]["id_point"],
+                          "prix_annonce_fcfa": 2 * v["prix_fcfa"]})
+    assert r.status_code == 201, r.text
+    assert r.json()["nb_places"] == 2 and r.json()["prix_fcfa"] == 2 * v["prix_fcfa"]
+    assert sql("SELECT nb_places FROM demande WHERE id_demande = %s", (r.json()["id_demande"],))[0]["nb_places"] == 2
+    assert _voyages(client)[0]["places_restantes"] == restantes - 2
+    assert _voyages(client)[0]["prix_fcfa"] == v["prix_fcfa"]            # le prix d'une place n'a pas bougé
+
+    # Plus de places que ce qu'il reste : refusé, rien n'est enregistré.
+    demandes = sql("SELECT count(*) n FROM demande")[0]["n"]
+    r = client.post(f"/api/voyages/{v['id_trajet']}/reservations", headers=comme(MIREILLE),
+                    json={"id_point_depart": v["points_depart"][0]["id_point"], "date_trajet": JOUR,
+                          "nb_places": restantes})
+    assert r.status_code == 409
+    assert sql("SELECT count(*) n FROM demande")[0]["n"] == demandes

@@ -48,9 +48,11 @@ void main() {
       // Logpom → Bonabéri : 15 km × 8 L/100 km × 840 FCFA = 1 008 FCFA de carburant.
       final urban = PriceEstimate.compute(distanceKm: 15, consumptionL100: 8, seats: 3);
       expect(urban.fuelFcfa, 1008);
-      // Parts du conducteur 504, 336 et 252 FCFA (partagées entre le conducteur et les passagers à
-      // bord) ; le prix payé comprend 10 % de commission MboaRide, arrondi aux 25 FCFA supérieurs.
-      expect(urban.perPassengerByOccupancy, [575, 375, 300]);
+      // 1 008 FCFA partagés à parts égales entre le conducteur et ses 3 places : 252 FCFA ; le prix payé
+      // comprend 10 % de commission MboaRide, arrondi aux 25 FCFA supérieurs. Tous les passagers paient
+      // la même somme, voiture pleine ou non.
+      expect(urban.perPassengerByOccupancy, [300, 300, 300]);
+      expect(urban.alonePrice, urban.fullPrice);
       expect(passengerPrice(40), 100); // jamais moins de 100 FCFA
 
       // Douala-Yaoundé : 240 km, 1 000 FCFA de péage, commission de 10 %.
@@ -170,8 +172,8 @@ void main() {
       final repository = _repo();
       await tester.pumpWidget(_app(PublishTripScreen(repository: repository)));
       await tester.pumpAndSettle();
-      expect(find.text('Environ 300 FCFA par passager, voiture pleine'), findsOneWidget);
-      expect(find.textContaining('575 FCFA pour un passager seul'), findsOneWidget);
+      expect(find.text('Environ 300 FCFA par place, le même pour tous'), findsOneWidget);
+      expect(find.textContaining('chaque passager paie 300 FCFA'), findsOneWidget);
 
       // Sans point de ramassage, la publication est refusée.
       await _tapVisible(tester, find.text('Publier le trajet'));
@@ -184,7 +186,7 @@ void main() {
 
       await _tapVisible(tester, find.text('Interurbain'));
       expect(find.text('Points de départ possibles'), findsOneWidget);
-      expect(find.text('Environ 3${_thin}825 FCFA par passager, voiture pleine'), findsOneWidget);
+      expect(find.text('Environ 3${_thin}825 FCFA par place, le même pour tous'), findsOneWidget);
     });
 
     testWidgets('un conducteur non agréé ne peut pas publier', (tester) async {

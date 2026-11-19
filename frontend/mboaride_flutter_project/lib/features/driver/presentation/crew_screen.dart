@@ -306,7 +306,7 @@ class CrewScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${stop.fullName} · ${stop.place}',
+                  Text('${stop.fullName}${stop.seats > 1 ? ' (${stop.seats} places)' : ''} · ${stop.place}',
                       style: const TextStyle(
                           fontSize: 14, fontWeight: FontWeight.w700)),
                   Text(

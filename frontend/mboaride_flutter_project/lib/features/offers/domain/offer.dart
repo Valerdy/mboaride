@@ -45,6 +45,8 @@ class Offer {
     required this.scheduleFits,
     required this.bookable,
     required this.formula,
+    this.seats = 1,
+    this.pricePerSeatFcfa,
     this.pickupPoint,
     this.pickupInstructions,
     this.vehicle,
@@ -56,7 +58,12 @@ class Offer {
   final String driver;
   final String route;
   final String circle;
+  /// Prix pour toutes les places demandées.
   final int priceFcfa;
+
+  /// Places demandées, et prix d'une place : le même pour tous les passagers du trajet.
+  final int seats;
+  final int? pricePerSeatFcfa;
   final List<PriceLine> priceLines;
   final double distanceKm;
   final int commissionFcfa;
@@ -84,6 +91,8 @@ class Offer {
     route: json['trajet'] as String? ?? '',
     circle: json['cercle'] as String? ?? 'organisation',
     priceFcfa: (json['prix_fcfa'] as num?)?.toInt() ?? 0,
+    seats: (json['nb_places'] as num?)?.toInt() ?? 1,
+    pricePerSeatFcfa: (json['prix_par_place_fcfa'] as num?)?.toInt(),
     priceLines: (json['detail'] as List<dynamic>? ?? const [])
         .map((line) => PriceLine.fromJson(line as Map<String, dynamic>))
         .toList(),
@@ -116,7 +125,7 @@ class Offer {
       return 'Arrivée hors de votre fenêtre, ou détour trop long';
     }
     if (!withinBudget) {
-      return 'Au-dessus de votre maximum de ${formatFcfa(maxPriceFcfa)}';
+      return 'Au-dessus de votre maximum de ${formatFcfa(maxPriceFcfa)} par place';
     }
     return null;
   }
@@ -234,6 +243,7 @@ class RideRequestSummary {
     required this.circleCode,
     required this.modeCode,
     this.singleDate,
+    this.seats = 1,
   });
 
   final int id;
@@ -245,6 +255,7 @@ class RideRequestSummary {
   final String circleCode;
   final String modeCode;
   final DateTime? singleDate;
+  final int seats;
 
   factory RideRequestSummary.fromJson(Map<String, dynamic> json) =>
       RideRequestSummary(
@@ -257,9 +268,12 @@ class RideRequestSummary {
         circleCode: json['cercle_max'] as String? ?? 'organisation',
         modeCode: json['mode_reservation'] as String? ?? 'manuel',
         singleDate: DateTime.tryParse(json['date_unique'] as String? ?? ''),
+        seats: (json['nb_places'] as num?)?.toInt() ?? 1,
       );
 
   String get label => '$from → $to';
+
+  String get seatsLabel => seats > 1 ? ' · $seats places' : '';
 
   /// Date proposée pour la réservation : celle de la demande, sinon le prochain
   /// jour ouvré.

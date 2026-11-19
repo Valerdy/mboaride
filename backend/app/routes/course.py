@@ -55,7 +55,7 @@ def passagers_payes(conn, id_trajet: int, jour: date) -> list[dict]:
     return conn.execute(
         """SELECT r.id_reservation, r.statut, r.fin_validee_le, r.heure_prise_en_charge, d.id_demandeur,
                   u.prenom, u.nom, p.id_paiement, p.montant_fcfa, p.commission_fcfa, p.verse_le,
-                  e.note
+                  e.note, r.nb_places
              FROM reservation r JOIN demande d USING (id_demande)
              JOIN utilisateur u ON u.id_utilisateur = d.id_demandeur
              JOIN paiement p ON p.id_reservation = r.id_reservation AND p.statut = 'reussi'
@@ -80,7 +80,7 @@ def etat_course(conn, t: dict, jour: date) -> dict:
         "demarree_le": c["demarree_le"] if c else None, "arrivee_le": c["arrivee_le"] if c else None,
         "passagers": [{"id_reservation": p["id_reservation"], "prenom": p["prenom"], "nom": p["nom"],
                        "fin_validee": p["fin_validee_le"] is not None, "note": p["note"],
-                       "montant_fcfa": p["montant_fcfa"]} for p in passagers],
+                       "montant_fcfa": p["montant_fcfa"], "nb_places": p["nb_places"]} for p in passagers],
         "validations": sum(p["fin_validee_le"] is not None for p in passagers),
         "total_paye_fcfa": sum(p["montant_fcfa"] for p in passagers),
         "commission_fcfa": sum(p["commission_fcfa"] for p in passagers),

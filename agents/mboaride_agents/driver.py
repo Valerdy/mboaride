@@ -216,6 +216,7 @@ class DriverAgent:
             with_commission=cfp["circle"] == "PUBLIC" or p.trip.trip_kind == "INTERURBAN",
             detour_m=detour.detour_m,
             trip_distance_m=detour.trip_distance_m,
+            direct_distance_m=detour.direct_distance_m,
         )
         if q.price > cfp["max_price"]:
             return "PRICE_TOO_HIGH", None

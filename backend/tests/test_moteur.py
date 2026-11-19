@@ -16,10 +16,11 @@ DEMANDE = {"depart_lat": 4.072, "depart_lon": 9.766, "arrivee_lat": 4.042, "arri
 def test_prix_identique_au_devis_des_agents():
     t, d = moteur.driver_from_row(TRAJET), moteur.request_from_row(DEMANDE)
     det = moteur.detour(t, d)
-    # Même politique que l'application : tronçon commun + détour, partagé entre les
-    # occupants à bord (SR-51).
+    # Même politique que l'application : trajet direct du conducteur, partagé à parts égales entre
+    # le conducteur et toutes ses places, donc le même prix pour tous les passagers.
     attendu = quote(moteur.POLITIQUE, shared_distance_m=det.shared_distance_m,
                     detour_m=det.detour_m, trip_distance_m=det.trip_distance_m,
+                    direct_distance_m=det.direct_distance_m,
                     consumption_l_per_100km=7.5, tolls=0, seats_total=3, seats_booked=0,
                     seats_requested=1, min_price=0, with_commission=False)
     detail = moteur.detail_prix(t, d, 0)
@@ -28,12 +29,16 @@ def test_prix_identique_au_devis_des_agents():
     # Tarif : commission de 10 % du prix sur tous les cercles, prix rond (25 FCFA), et le
     # conducteur reçoit au moins sa part des frais.
     assert detail.prix_fcfa % 25 == 0 and detail.commission_fcfa == detail.prix_fcfa // 10
+    assert attendu.divisor == 4                      # conducteur + 3 places offertes
     frais = attendu.fuel_cost / attendu.divisor
     assert detail.prix_fcfa - detail.commission_fcfa >= frais
     public = moteur.detail_prix(t, d, 2)
     assert public.prix_fcfa == detail.prix_fcfa and public.commission_fcfa == detail.commission_fcfa
-    # La voiture se remplit : chacun paie moins.
-    assert moteur.detail_prix(t, d, 0, places_reservees=2).prix_fcfa < detail.prix_fcfa
+    # La voiture se remplit : le prix d'une place ne bouge pas.
+    assert moteur.detail_prix(t, d, 0, places_reservees=2).prix_fcfa == detail.prix_fcfa
+    # Ni le point de montée ni le détour ne changent la somme demandée.
+    autre = {**DEMANDE, "depart_lat": 4.0775, "depart_lon": 9.7625}
+    assert moteur.detail_prix(t, moteur.request_from_row(autre), 0).prix_fcfa == detail.prix_fcfa
 
 
 def test_horaires_et_filtres_des_agents():
