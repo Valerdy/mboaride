@@ -39,6 +39,20 @@ def stockage(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "STOCKAGE", tmp_path / "stockage")
 
 
+@pytest.fixture(autouse=True)
+def reglages_propres():
+    """Les réglages de la console sont mis en cache : un test qui en change un ne doit pas
+    influencer le suivant, même s'il n'utilise pas la base."""
+    import time
+
+    from app import parametres
+    # Valeurs par défaut du produit en cache : un test qui n'ouvre pas la base ne lit pas les réglages
+    # laissés par un test précédent. Ceux qui utilisent la base (fixture `base`) relisent la base.
+    parametres._cache.update(valeurs=parametres.defauts(), lu_le=time.monotonic())
+    yield
+    parametres.invalider()
+
+
 @pytest.fixture()
 def base():
     from app import parametres
