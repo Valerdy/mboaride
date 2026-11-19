@@ -94,4 +94,4 @@ ALTER TABLE notification DROP CONSTRAINT IF EXISTS notification_type_check;
 ALTER TABLE notification ADD CONSTRAINT notification_type_check
     CHECK (type IN ('annulation', 'reaffectation', 'offres', 'paiement', 'remboursement',
                     'invitation', 'depart', 'arrivee', 'retard',
-                    'course', 'fin_course', 'versement', 'portefeuille'));
+                    'course', 'fin_course', 'versement', 'portefeuille', 'administration'));
