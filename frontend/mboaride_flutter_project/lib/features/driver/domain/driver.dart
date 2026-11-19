@@ -412,8 +412,9 @@ class PriceEstimate {
     required this.perPassengerByOccupancy,
   });
 
-  /// Le carburant du trajet commun (et les péages) est partagé entre le conducteur et
-  /// les passagers à bord ; le prix comprend la commission MboaRide de 10 %.
+  /// Le carburant du trajet (et les péages) est partagé à parts égales entre le conducteur et
+  /// toutes les places offertes : tous les passagers paient la même somme, voiture pleine ou
+  /// non. Le prix comprend la commission MboaRide de 10 %.
   factory PriceEstimate.compute({
     required double distanceKm,
     required double consumptionL100,
@@ -422,13 +423,8 @@ class PriceEstimate {
     bool withCommission = false,
   }) {
     final fuel = roundHalfUp(distanceKm * consumptionL100 / 100 * fuelPricePerLitre);
-    final prices = <int>[
-      for (var passengers = 1; passengers <= seats; passengers++)
-        _withCommission(
-          roundHalfUp((fuel + tollsFcfa) / (1 + passengers)),
-          withCommission,
-        ),
-    ];
+    final price = _withCommission(roundHalfUp((fuel + tollsFcfa) / (1 + seats)), withCommission);
+    final prices = <int>[for (var passengers = 1; passengers <= seats; passengers++) price];
     return PriceEstimate._(
       distanceKm: distanceKm,
       fuelFcfa: fuel,
@@ -513,7 +509,11 @@ class CrewStop {
     this.ratingCount = 0,
     this.student = false,
     this.endValidated = false,
+    this.seats = 1,
   });
+
+  /// Places réservées par ce passager.
+  final int seats;
 
   /// Prénom du passager.
   final String passenger;

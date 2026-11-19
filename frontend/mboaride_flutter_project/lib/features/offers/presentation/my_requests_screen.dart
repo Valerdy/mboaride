@@ -194,7 +194,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
                           'Arrivée entre ${request.earliest} et ${request.latest}\n'
-                          'Maximum ${formatFcfa(request.maxPriceFcfa)} · '
+                          'Maximum ${formatFcfa(request.maxPriceFcfa)} par place${request.seatsLabel} · '
                           'mode ${request.modeCode}',
                           style: const TextStyle(
                             fontSize: 13,

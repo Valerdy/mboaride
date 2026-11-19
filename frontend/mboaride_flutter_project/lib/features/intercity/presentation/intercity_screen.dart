@@ -85,7 +85,7 @@ class _IntercityScreenState extends State<IntercityScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Place confirmée · ${formatFcfa(booking.priceFcfa)} · '
+            '${booking.seats > 1 ? '${booking.seats} places confirmées' : 'Place confirmée'} · ${formatFcfa(booking.priceFcfa)} · '
             'montée à ${booking.pickupLabel} à ${booking.pickupTime}',
           ),
         ),
@@ -360,6 +360,7 @@ class _SeatSheetState extends State<_SeatSheet> {
       : widget.trip.points.first.id;
   bool _saving = false;
   String? _error;
+  int _seats = 1;
 
   Future<void> _confirm() async {
     setState(() {
@@ -372,7 +373,8 @@ class _SeatSheetState extends State<_SeatSheet> {
         pickupPointId: _pointId,
         date: widget.date,
         childId: widget.childId,
-        announcedPriceFcfa: widget.trip.priceFcfa,
+        seats: _seats,
+        announcedPriceFcfa: widget.trip.priceFcfa * _seats,
       );
       if (!mounted) return;
       Navigator.of(context).pop(booking);
@@ -473,6 +475,41 @@ class _SeatSheetState extends State<_SeatSheet> {
             ),
           ),
         ),
+        if (widget.childId == null && widget.trip.seatsLeft > 1) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Places à réserver',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: MboaColors.night),
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Moins de places',
+                onPressed: _seats > 1 ? () => setState(() => _seats--) : null,
+                icon: const Icon(Icons.remove_rounded),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Text(
+                  '$_seats',
+                  key: const ValueKey('nombre-de-places'),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Plus de places',
+                onPressed: _seats < widget.trip.seatsLeft ? () => setState(() => _seats++) : null,
+                icon: const Icon(Icons.add_rounded),
+              ),
+            ],
+          ),
+          const Text(
+            'Chaque place coûte le même prix.',
+            style: TextStyle(fontSize: 12, color: MboaColors.mutedText),
+          ),
+        ],
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(top: 10),
@@ -493,7 +530,9 @@ class _SeatSheetState extends State<_SeatSheet> {
                     color: Colors.white,
                   ),
                 )
-              : Text('Réserver · ${widget.trip.priceLabel}'),
+              : Text(_seats > 1
+                  ? 'Réserver $_seats places · ${formatFcfa(widget.trip.priceFcfa * _seats)}'
+                  : 'Réserver · ${widget.trip.priceLabel}'),
         ),
       ],
     ),

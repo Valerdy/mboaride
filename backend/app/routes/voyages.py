@@ -38,8 +38,9 @@ class Reservation(BaseModel):
     id_point_depart: int
     date_trajet: Date
     id_eleve: int | None = None
+    nb_places: int = Field(default=1, ge=1, le=8, description="Places réservées ensemble")
     prix_annonce_fcfa: int | None = Field(
-        default=None, description="Prix affiché au voyageur ; un écart renvoie un 409")
+        default=None, description="Prix total affiché au voyageur (places comprises) ; un écart renvoie un 409")
 
 
 def _voyage(conn: psycopg.Connection, id_trajet: int) -> dict:
@@ -61,7 +62,8 @@ def _points(conn: psycopg.Connection, id_trajet: int) -> list[dict]:
         (id_trajet,)).fetchall()
 
 
-def _demande_virtuelle(voyage: dict, point: dict | None, jour: Date, id_demandeur: int) -> dict:
+def _demande_virtuelle(voyage: dict, point: dict | None, jour: Date, id_demandeur: int,
+                       nb_places: int = 1) -> dict:
     """Demande telle qu'elle sera enregistrée : du point de montée à l'arrivée du voyage."""
     depart = point["heure_passage"] if point else voyage["heure_depart"]
     base = depart.hour * 60 + depart.minute
@@ -71,7 +73,7 @@ def _demande_virtuelle(voyage: dict, point: dict | None, jour: Date, id_demandeu
         tot, tard = 23 * 60 + 58, 23 * 60 + 59
     return {
         "id_demande": None, "id_demandeur": id_demandeur, "id_eleve": None,
-        "id_organisation": None, "type_trajet": "interurbain",
+        "id_organisation": None, "type_trajet": "interurbain", "nb_places": nb_places,
         "depart_libelle": point["libelle"] if point else voyage["depart_libelle"],
         "depart_lat": point["lat"] if point else voyage["depart_lat"],
         "depart_lon": point["lon"] if point else voyage["depart_lon"],
@@ -87,11 +89,9 @@ def _demande_virtuelle(voyage: dict, point: dict | None, jour: Date, id_demandeu
 
 def _prix_place(conn: psycopg.Connection, voyage: dict, point: dict | None,
                 jour: Date, id_demandeur: int) -> int:
-    """Prix de la place pour ce point de montée, calculé par le moteur."""
+    """Prix d'une place, calculé par le moteur : le même pour tous les voyageurs du voyage."""
     virtuelle = _demande_virtuelle(voyage, point, jour, id_demandeur)
-    occupants = conn.execute(
-        "SELECT count(*) n FROM reservation WHERE id_trajet = %s AND date_trajet = %s "
-        "AND statut = 'confirmee'", (voyage["id_trajet"], jour)).fetchone()["n"]
+    occupants = voyage["places_offertes"] - places_restantes(conn, voyage, jour)
     detail = moteur.detail_prix(moteur.driver_from_row(voyage),
                                moteur.request_from_row(virtuelle),
                                moteur.NIVEAU_CODE["public"], places_reservees=occupants)
@@ -159,27 +159,27 @@ def reserver_place(id_trajet: int, body: Reservation, u: dict = Depends(utilisat
             (body.id_eleve, u["id_utilisateur"])).fetchone():
         raise HTTPException(404, "Élève introuvable dans vos comptes")
 
-    virtuelle = _demande_virtuelle(voyage, point, jour, u["id_utilisateur"])
+    virtuelle = _demande_virtuelle(voyage, point, jour, u["id_utilisateur"], body.nb_places)
     prix = _prix_place(conn, voyage, point, jour, u["id_utilisateur"])
-    if body.prix_annonce_fcfa is not None and body.prix_annonce_fcfa != prix:
+    if body.prix_annonce_fcfa is not None and body.prix_annonce_fcfa != prix * body.nb_places:
         raise HTTPException(409, {"message": "Le prix a changé depuis l'affichage, merci de "
                                              "valider le nouveau prix.",
-                                  "nouveau_prix_fcfa": prix, "detail": []})
+                                  "nouveau_prix_fcfa": prix * body.nb_places, "detail": []})
 
     d = conn.execute(
         """INSERT INTO demande (id_demandeur, id_eleve, type_trajet,
                depart_libelle, depart_lat, depart_lon, arrivee_libelle, arrivee_lat, arrivee_lon,
                arrivee_au_plus_tot, arrivee_au_plus_tard, date_unique, prix_max_fcfa,
-               mode_reservation, cercle_max, statut)
+               mode_reservation, cercle_max, statut, nb_places)
            VALUES (%(dem)s, %(ele)s, 'interurbain', %(dl)s, %(dla)s, %(dlo)s, %(al)s, %(ala)s, %(alo)s,
-                   %(tot)s, %(tard)s, %(jour)s, %(prix)s, 'manuel', 'public', 'ouverte')
+                   %(tot)s, %(tard)s, %(jour)s, %(prix)s, 'manuel', 'public', 'ouverte', %(nb)s)
            RETURNING *""",
         {"dem": u["id_utilisateur"], "ele": body.id_eleve,
          "dl": virtuelle["depart_libelle"], "dla": virtuelle["depart_lat"],
          "dlo": virtuelle["depart_lon"], "al": virtuelle["arrivee_libelle"],
          "ala": virtuelle["arrivee_lat"], "alo": virtuelle["arrivee_lon"],
          "tot": virtuelle["arrivee_au_plus_tot"], "tard": virtuelle["arrivee_au_plus_tard"],
-         "jour": jour, "prix": prix}).fetchone()
+         "jour": jour, "prix": prix, "nb": body.nb_places}).fetchone()
     try:
         e = evaluer(conn, d, voyage, jour)
     except Refus:

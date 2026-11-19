@@ -512,7 +512,7 @@ def _equipage(conn, t: dict, jour: date) -> dict:
         """SELECT r.id_reservation, u.prenom AS passager, u.nom, u.telephone, d.depart_libelle AS lieu,
                   d.depart_lat AS lat, d.depart_lon AS lon, d.arrivee_libelle AS destination,
                   r.heure_prise_en_charge, r.heure_arrivee_estimee, d.arrivee_au_plus_tard, r.prix_fcfa,
-                  r.fin_validee_le, d.id_eleve, n.note_moyenne, n.nb_evaluations
+                  r.fin_validee_le, r.nb_places, d.id_eleve, n.note_moyenne, n.nb_evaluations
              FROM reservation r JOIN demande d USING (id_demande)
              JOIN utilisateur u ON u.id_utilisateur = d.id_demandeur
              JOIN paiement p ON p.id_reservation = r.id_reservation AND p.statut = 'reussi'
@@ -551,6 +551,7 @@ def _equipage(conn, t: dict, jour: date) -> dict:
                     "prise_en_charge": _hhmm(a["heure_prise_en_charge"]),
                     "arrivee": _hhmm(a["heure_arrivee_estimee"]),
                     "au_plus_tard": _hhmm(a["arrivee_au_plus_tard"]), "prix_fcfa": a["prix_fcfa"],
+                    "nb_places": a["nb_places"],
                     "lat": float(a["lat"]), "lon": float(a["lon"])} for a in arrets],
     }
 
@@ -646,7 +647,7 @@ def gains(u: dict = Depends(utilisateur_courant), conn: psycopg.Connection = Dep
     rows = conn.execute(
         """SELECT r.id_trajet, r.date_trajet, t.depart_libelle, t.arrivee_libelle, t.depart_lat, t.depart_lon,
                   t.arrivee_lat, t.arrivee_lon, t.type_trajet, v.conso_l_100km,
-                  count(*) AS passagers, sum(p.montant_fcfa - p.commission_fcfa) AS montant,
+                  sum(r.nb_places) AS passagers, sum(p.montant_fcfa - p.commission_fcfa) AS montant,
                   sum(p.commission_fcfa) AS commission, bool_and(p.verse_le IS NOT NULL) AS recu
              FROM reservation r JOIN trajet t USING (id_trajet) JOIN vehicule v USING (id_vehicule)
              JOIN paiement p USING (id_reservation)

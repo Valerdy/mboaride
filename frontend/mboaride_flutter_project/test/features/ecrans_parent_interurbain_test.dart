@@ -74,4 +74,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Place confirmée'), findsOneWidget);
   });
+
+  testWidgets('plusieurs places se réservent ensemble au même prix chacune (US22)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(IntercityScreen(repository: FakeIntercityRepository())),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Douala → Yaoundé').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('nombre-de-places')), findsOneWidget);
+    await tester.tap(find.byTooltip('Plus de places'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Réserver 2 places'), findsOneWidget);
+
+    await tester.tap(find.textContaining('Réserver 2 places'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('2 places confirmées'), findsOneWidget);
+  });
 }

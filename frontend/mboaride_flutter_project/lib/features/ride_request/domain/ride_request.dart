@@ -31,6 +31,7 @@ enum RideDay { today, tomorrow }
 class RideRequestRules {
   static const int minPriceFcfa = 100;
   static const int maxPriceFcfa = 20000;
+  static const int maxSeats = 6;
   static const int minWindowMinutes = 10;
   static const int maxWindowMinutes = 180;
   static const double minDistanceMeters = 100;
@@ -143,7 +144,11 @@ class RideRequest {
     required this.maxPriceFcfa,
     required this.comforts,
     this.circleCode,
+    this.seats = 1,
   });
+
+  /// Places réservées ensemble (vous et vos proches). Le budget est un prix par place.
+  final int seats;
 
   final Place pickup;
   final Place dropoff;
@@ -166,6 +171,7 @@ class RideRequest {
         'to': windowEnd.toUtc().toIso8601String(),
       },
       'max_price_fcfa': maxPriceFcfa,
+      'seats': seats,
       'comforts': sorted.map((c) => c.code).toList(),
     };
   }

@@ -149,6 +149,7 @@ class MyTrip {
     required this.priceFcfa,
     required this.driver,
     required this.vehicle,
+    this.seats = 1,
     this.paymentId,
     this.paymentStatus,
     this.reference,
@@ -164,6 +165,9 @@ class MyTrip {
   });
 
   final int bookingId;
+
+  /// Places réservées dans cette réservation.
+  final int seats;
   final TripState state;
   final DateTime date;
   final String route;
@@ -201,6 +205,7 @@ class MyTrip {
     priceFcfa: (json['prix_fcfa'] as num?)?.toInt() ?? 0,
     driver: json['conducteur'] as String? ?? '',
     vehicle: json['vehicule'] as String? ?? '',
+    seats: (json['nb_places'] as num?)?.toInt() ?? 1,
     paymentId: (json['id_paiement'] as num?)?.toInt(),
     paymentStatus: json['statut_paiement'] == null ? null : paymentStatusFromCode(json['statut_paiement'] as String?),
     reference: json['reference'] as String?,

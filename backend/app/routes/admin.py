@@ -1318,7 +1318,7 @@ class Simulation(BaseModel):
     valeurs: dict[str, int] = {}
     distance_km: float = Field(default=10, gt=0, le=500)
     conso_l_100km: float = Field(default=7.5, gt=0, le=30)
-    passagers: int = Field(default=2, ge=1, le=8)
+    passagers: int = Field(default=3, ge=1, le=8, description="Places offertes par le conducteur")
 
 
 @router.post("/parametres/simulation")
@@ -1336,8 +1336,9 @@ def simuler(body: Simulation, a: dict = Depends(admin_courant)) -> dict:
                       commission_rate=Fraction(v["commission_pct"], 100), rounding_step=v["arrondi_fcfa"],
                       min_fare=v["prix_minimum_fcfa"])
         q = quote(pol, shared_distance_m=round(body.distance_km * 1000), detour_m=0,
-                  trip_distance_m=round(body.distance_km * 1000), consumption_l_per_100km=body.conso_l_100km,
-                  tolls=0, seats_total=8, seats_booked=body.passagers - 1, seats_requested=1, min_price=0,
+                  trip_distance_m=round(body.distance_km * 1000), direct_distance_m=round(body.distance_km * 1000),
+                  consumption_l_per_100km=body.conso_l_100km,
+                  tolls=0, seats_total=body.passagers, seats_booked=0, seats_requested=1, min_price=0,
                   with_commission=True)
         return {"prix_fcfa": q.price, "commission_fcfa": q.commission, "part_conducteur_fcfa": q.price - q.commission,
                 "carburant_fcfa": q.fuel_cost}

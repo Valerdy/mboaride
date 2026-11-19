@@ -590,19 +590,19 @@ class _PublishTripScreenState extends State<PublishTripScreen> {
         '× $fuelPricePerLitre FCFA = ${fcfa(estimate.fuelFcfa)} de carburant';
     if (!interurban) {
       return InfoBanner(
-        '$fuelLine, partagés entre vous et les passagers à bord : '
-        '${fcfa(estimate.alonePrice)} pour un passager seul, ${fcfa(estimate.fullPrice)} chacun '
-        'quand vos $_seats places sont prises (hors détour). Le prix comprend la commission MboaRide '
-        'de 10 % ; vous recevez le reste dans votre portefeuille à la fin de la course.',
-        title: 'Environ ${fcfa(estimate.fullPrice)} par passager, voiture pleine',
+        '$fuelLine, partagés à parts égales entre vous et vos $_seats places : '
+        'chaque passager paie ${fcfa(estimate.fullPrice)}, quel que soit son point de montée et '
+        'l\'ordre des réservations. Le prix comprend la commission MboaRide de 10 % ; vous '
+        'recevez le reste dans votre portefeuille à la fin de la course.',
+        title: 'Environ ${fcfa(estimate.fullPrice)} par place, le même pour tous',
         warm: true,
       );
     }
     return InfoBanner(
-      '$fuelLine, plus ${fcfa(estimate.tollsFcfa)} de péages, partagés entre vous et les passagers '
-      'à bord, plus 10 % de commission MboaRide. Un passager seul paie ${fcfa(estimate.alonePrice)}. '
+      '$fuelLine, plus ${fcfa(estimate.tollsFcfa)} de péages, partagés à parts égales entre vous et '
+      'vos $_seats places, plus 10 % de commission MboaRide : chaque passager paie la même somme. '
       'Billet de car classique : ${fcfa(3500)}.',
-      title: 'Environ ${fcfa(estimate.fullPrice)} par passager, voiture pleine',
+      title: 'Environ ${fcfa(estimate.fullPrice)} par place, le même pour tous',
       warm: true,
     );
   }

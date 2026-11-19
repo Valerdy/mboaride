@@ -149,6 +149,7 @@ class ApiDriverRepository implements DriverRepository {
             ratingCount: (s['nb_evaluations'] as num?)?.toInt() ?? 0,
             student: s['eleve'] == true,
             endValidated: s['fin_validee'] == true,
+            seats: (s['nb_places'] as num?)?.toInt() ?? 1,
           ),
       ],
     );

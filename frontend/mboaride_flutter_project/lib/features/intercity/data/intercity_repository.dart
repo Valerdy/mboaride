@@ -13,7 +13,10 @@ abstract class IntercityRepository {
     required DateTime date,
     int? childId,
 
-    /// Prix affiché au voyageur : un écart renvoie un 409 et rien n'est réservé.
+    /// Places réservées ensemble.
+    int seats = 1,
+
+    /// Prix total affiché au voyageur (toutes les places) : un écart renvoie un 409 et rien n'est réservé.
     int? announcedPriceFcfa,
   });
 }
@@ -38,11 +41,13 @@ class ApiIntercityRepository implements IntercityRepository {
     required int pickupPointId,
     required DateTime date,
     int? childId,
+    int seats = 1,
     int? announcedPriceFcfa,
   }) async {
     final body = await _client.post('/api/voyages/$tripId/reservations', {
       'id_point_depart': pickupPointId,
       'date_trajet': isoDate(date),
+      'nb_places': seats,
       if (childId != null) 'id_eleve': childId,
       if (announcedPriceFcfa != null) 'prix_annonce_fcfa': announcedPriceFcfa,
     });
@@ -126,10 +131,11 @@ class FakeIntercityRepository implements IntercityRepository {
     required int pickupPointId,
     required DateTime date,
     int? childId,
+    int seats = 1,
     int? announcedPriceFcfa,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    _taken[tripId] = (_taken[tripId] ?? 0) + 1;
+    _taken[tripId] = (_taken[tripId] ?? 0) + seats;
     final trips = await this.trips(date);
     final trip = trips.firstWhere((t) => t.id == tripId);
     final point = trip.points.firstWhere(
@@ -138,7 +144,8 @@ class FakeIntercityRepository implements IntercityRepository {
     );
     return SeatBooking(
       bookingId: _nextBooking++,
-      priceFcfa: trip.priceFcfa,
+      priceFcfa: trip.priceFcfa * seats,
+      seats: seats,
       pickupLabel: point.label,
       pickupTime: point.time,
       payment: 'À régler par Mobile Money avant le départ.',

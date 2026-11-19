@@ -209,7 +209,7 @@ class _Header extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             'Arrivée entre ${request.earliest} et ${request.latest} · '
-            'maximum ${formatFcfa(request.maxPriceFcfa)}',
+            'maximum ${formatFcfa(request.maxPriceFcfa)} par place${request.seatsLabel}',
             style: const TextStyle(fontSize: 13, color: Color(0xFFCBD6CF)),
           ),
           const SizedBox(height: 10),
@@ -294,15 +294,25 @@ class _OfferCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    Text(
-                      formatFcfa(offer.priceFcfa),
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: offer.withinBudget
-                            ? MboaColors.green
-                            : MboaColors.red,
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          formatFcfa(offer.priceFcfa),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: offer.withinBudget
+                                ? MboaColors.green
+                                : MboaColors.red,
+                          ),
+                        ),
+                        if (offer.seats > 1 && offer.pricePerSeatFcfa != null)
+                          Text(
+                            '${offer.seats} × ${formatFcfa(offer.pricePerSeatFcfa!)}',
+                            style: const TextStyle(fontSize: 12, color: MboaColors.mutedText),
+                          ),
+                      ],
                     ),
                   ],
                 ),

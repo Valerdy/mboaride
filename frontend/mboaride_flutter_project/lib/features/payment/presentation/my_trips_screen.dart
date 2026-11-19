@@ -225,7 +225,8 @@ class _TripCard extends StatelessWidget {
           Text('${frenchDate(trip.date)} · prise en charge ${trip.pickupTime}, arrivée ${trip.arrivalTime}'),
           Text('Avec ${trip.driver} · ${trip.vehicle}', style: const TextStyle(color: MboaColors.mutedText)),
           const SizedBox(height: 6),
-          Text('${trip.priceFcfa} FCFA', style: const TextStyle(fontWeight: FontWeight.w700, color: MboaColors.green)),
+          Text('${trip.priceFcfa} FCFA${trip.seats > 1 ? ' · ${trip.seats} places' : ''}',
+              style: const TextStyle(fontWeight: FontWeight.w700, color: MboaColors.green)),
           if (trip.state == TripState.confirmed && trip.reference != null)
             Text('Payé · réf. ${trip.reference}${trip.operatorLabel == null ? '' : ' · ${trip.operatorLabel}'}',
                 style: const TextStyle(fontSize: 12.5, color: MboaColors.mutedText)),

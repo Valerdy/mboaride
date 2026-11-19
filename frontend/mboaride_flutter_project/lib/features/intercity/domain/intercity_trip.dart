@@ -89,8 +89,10 @@ class SeatBooking {
     required this.pickupLabel,
     required this.pickupTime,
     this.payment = '',
+    this.seats = 1,
   });
 
+  final int seats;
   final int bookingId;
   final int priceFcfa;
   final String pickupLabel;
@@ -103,5 +105,6 @@ class SeatBooking {
     pickupLabel: json['point_depart'] as String? ?? '',
     pickupTime: json['heure_depart'] as String? ?? '',
     payment: json['paiement'] as String? ?? '',
+    seats: (json['nb_places'] as num?)?.toInt() ?? 1,
   );
 }

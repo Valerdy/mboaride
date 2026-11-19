@@ -6,13 +6,12 @@ de `routing.EstimatedRouting.detour`, exactement comme dans l'agent conducteur
 les agents négocient, et changer la règle de partage des frais (`PricingPolicy`) le
 change partout.
 
-Règle appliquée par le produit (SR-51) : le coût du trajet commun, détour imposé
-compris, est partagé entre les occupants réellement à bord. Mesurée sur les scénarios
-du banc (`agents/scripts/comparer_regles_prix.py`), elle donne un prix moyen de
-249 FCFA, soit 42 % d'un taxi, et porte la couverture des frais du conducteur de 48 %
-à 66 %. L'ancienne règle, qui divisait le seul tronçon commun par toutes les places
-offertes même à vide, reste le défaut du moteur : c'est celle de l'exemple du document
-de vision et des messages documentés.
+Règle appliquée par le produit : tous les passagers d'un même équipage paient la même
+somme. Le coût du trajet direct du conducteur est partagé à parts égales entre le conducteur
+et toutes les places offertes, que la voiture soit pleine ou non : le prix d'une place ne
+dépend ni du point de montée, ni du détour, ni de l'ordre des réservations. Une réservation
+de plusieurs places coûte autant de fois ce prix. La règle mesurée dans le bilan SR-51
+(tronçon commun et détour, partagés entre les occupants à bord) reste réglable côté agents.
 """
 
 from __future__ import annotations
@@ -23,7 +22,8 @@ from fractions import Fraction
 
 from . import config, parametres  # config ajoute le dossier agents/ au chemin d'import
 from mboaride_agents.osrm import OsrmRouting  # type: ignore
-from mboaride_agents.pricing import PRODUCT_POLICY, PricingPolicy, Quote, quote  # type: ignore
+from mboaride_agents.pricing import (DRIVER_ROUTE, OFFERED_SEATS, PRODUCT_POLICY, PricingPolicy,  # type: ignore
+                                     Quote, quote)
 from mboaride_agents.routing import ESTIMATORS, Detour, EstimatedRouting, Point  # type: ignore
 
 NIVEAUX = {0: "organisation", 1: "partenaires", 2: "public"}
@@ -150,7 +150,7 @@ class DetailPrix:
     distance_km: float        # tronçon parcouru avec le passager
     conso_l100: float
     devis: Quote
-    base_km: float = 0.0      # distance sur laquelle porte le coût (tronçon + détour)
+    base_km: float = 0.0      # distance sur laquelle porte le coût
     politique: PricingPolicy = PRODUCT_POLICY
 
     @property
@@ -164,14 +164,18 @@ class DetailPrix:
     def lignes(self) -> list[dict]:
         q = self.devis
         pol = self.politique
-        out = [{"libelle": f"Carburant du trajet commun et du détour ({fr(self.base_km or self.distance_km)} km "
+        base = fr(self.base_km or self.distance_km)
+        quoi = ("du trajet du conducteur" if pol.cost_basis == DRIVER_ROUTE else "du trajet commun et du détour")
+        out = [{"libelle": f"Carburant {quoi} ({base} km "
                            f"× {fr(self.conso_l100)} L/100 km × {pol.fuel_price_per_l} FCFA/L)",
                 "montant_fcfa": q.fuel_cost}]
         if q.tolls:
             out.append({"libelle": "Péage", "montant_fcfa": q.tolls})
-        out.append({"libelle": f"Part du conducteur : frais partagés entre {q.divisor} occupant(s) à bord "
-                               f"(conducteur compris)",
-                    "montant_fcfa": q.price - q.commission})
+        partage = (f"frais partagés à parts égales entre les {q.divisor} personnes de l'équipage "
+                   f"(conducteur compris) : même prix pour tous les passagers"
+                   if pol.divisor_rule == OFFERED_SEATS
+                   else f"frais partagés entre {q.divisor} occupant(s) à bord (conducteur compris)")
+        out.append({"libelle": f"Part du conducteur : {partage}", "montant_fcfa": q.price - q.commission})
         if q.commission:
             out.append({"libelle": f"Commission MboaRide ({fr(float(pol.commission_rate) * 100)} % du prix, "
                                    f"prélevée sur chaque trajet)", "montant_fcfa": q.commission})
@@ -183,19 +187,22 @@ class DetailPrix:
 def detail_prix(trajet: Trajet, demande: Demande, niveau: int, places_reservees: int = 0) -> DetailPrix:
     """Devis de l'agent conducteur pour ce passager, décomposé ligne par ligne.
 
-    `places_reservees` : passagers déjà à bord ce jour-là ; plus la voiture est pleine,
-    moins chacun paie. La commission (10 % par défaut, réglable dans la console) s'applique à
-    tous les cercles.
+    Prix d'une place. `places_reservees` : places déjà prises ce jour-là ; avec la règle du
+    produit il ne change pas le prix, mais les règles « occupants à bord » s'en servent. La
+    commission (10 % par défaut, réglable dans la console) s'applique à tous les cercles.
     """
     d = detour(trajet, demande)
     pol = politique()
     q = quote(pol, shared_distance_m=d.shared_distance_m, detour_m=d.detour_m,
               trip_distance_m=d.trip_distance_m, consumption_l_per_100km=trajet.conso_l100,
+              direct_distance_m=d.direct_distance_m,
               tolls=trajet.peage_fcfa if trajet.interurbain else 0, seats_total=trajet.places,
               seats_booked=places_reservees, seats_requested=1, min_price=trajet.prix_min,
               with_commission=niveau == CERCLE_PUBLIC or trajet.interurbain)
+    base_m = (d.direct_distance_m if pol.cost_basis == DRIVER_ROUTE and d.direct_distance_m
+              else d.shared_distance_m + d.detour_m)
     return DetailPrix(round(d.shared_distance_m / 1000, 2), trajet.conso_l100, q,
-                      base_km=round((d.shared_distance_m + d.detour_m) / 1000, 2), politique=pol)
+                      base_km=round(base_m / 1000, 2), politique=pol)
 
 
 def horaires(trajet: Trajet, demande: Demande) -> tuple[str, str, float] | None:

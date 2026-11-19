@@ -31,7 +31,8 @@ def test_les_parametres_changent_le_prix(client, equipe):
 
     corps = {"valeurs": {"commission_pct": 20, "arrondi_fcfa": 50}}
     assert client.put("/api/admin/parametres", json=corps, headers=comme(SUPPORT)).status_code == 403
-    sim = client.post("/api/admin/parametres/simulation", json=corps, headers=comme(SUPPORT)).json()
+    sim = client.post("/api/admin/parametres/simulation", json={**corps, "distance_km": 40},
+                      headers=comme(SUPPORT)).json()
     assert sim["propose"]["prix_fcfa"] > sim["actuel"]["prix_fcfa"] and sim["propose"]["prix_fcfa"] % 50 == 0
 
     r = client.put("/api/admin/parametres", json=corps, headers=comme(CHEF))
