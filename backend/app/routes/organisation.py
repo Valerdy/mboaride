@@ -96,6 +96,57 @@ def mes_organisations(u: dict = Depends(utilisateur_courant),
             WHERE a.id_utilisateur = %s ORDER BY o.nom""", (u["id_utilisateur"],)).fetchall()
 
 
+@router.get("/etablissements")
+def etablissements(u: dict = Depends(utilisateur_courant),
+                   conn: psycopg.Connection = Depends(get_conn)) -> list[dict]:
+    """Écoles et campus connus de MboaRide : le parent en choisit un pour le compte de son enfant."""
+    return conn.execute(
+        """SELECT id_organisation AS id, nom, type_organisation AS type, ville FROM organisation
+            WHERE type_organisation IN ('etablissement_scolaire', 'campus') ORDER BY nom""").fetchall()
+
+
+class Code(BaseModel):
+    code: str = Field(min_length=3, max_length=12)
+
+
+@router.post("/moi/organisations/rejoindre", status_code=201)
+def rejoindre_par_code(body: Code, u: dict = Depends(utilisateur_courant),
+                       conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Rejoindre une organisation avec son code (école, campus, événement). Une entreprise qui réserve son
+    cercle à un nom de domaine n'est ouverte par code qu'aux adresses de ce domaine ; les autres employés
+    passent par l'invitation de son administrateur."""
+    org = conn.execute("SELECT * FROM organisation WHERE upper(code_invitation) = upper(%s)",
+                       (body.code.strip(),)).fetchone()
+    if org is None:
+        raise HTTPException(404, "Code inconnu : vérifiez-le auprès de l'organisation")
+    if conn.execute("SELECT 1 FROM appartenance WHERE id_utilisateur = %s AND id_organisation = %s",
+                    (u["id_utilisateur"], org["id_organisation"])).fetchone():
+        raise HTTPException(409, f"Vous faites déjà partie de {org['nom']}")
+    domaine = (org["domaine_email"] or "").lower()
+    if domaine and not (u["email"] or "").lower().endswith("@" + domaine):
+        raise HTTPException(403, f"{org['nom']} est réservée aux adresses @{domaine} : demandez une invitation "
+                                 f"à son administrateur")
+    conn.execute("INSERT INTO appartenance (id_utilisateur, id_organisation) VALUES (%s, %s)",
+                 (u["id_utilisateur"], org["id_organisation"]))
+    return {"id_organisation": org["id_organisation"], "nom": org["nom"],
+            "type_organisation": org["type_organisation"], "role": "membre"}
+
+
+@router.delete("/moi/organisations/{id_org}")
+def quitter_organisation(id_org: int, u: dict = Depends(utilisateur_courant),
+                         conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    a = conn.execute("SELECT role FROM appartenance WHERE id_utilisateur = %s AND id_organisation = %s",
+                     (u["id_utilisateur"], id_org)).fetchone()
+    if a is None:
+        raise HTTPException(404, "Vous ne faites pas partie de cette organisation")
+    if a["role"] == "administrateur":
+        raise HTTPException(409, "Un administrateur ne peut pas quitter son organisation : l'équipe MboaRide "
+                                 "doit d'abord désigner un autre administrateur")
+    conn.execute("DELETE FROM appartenance WHERE id_utilisateur = %s AND id_organisation = %s",
+                 (u["id_utilisateur"], id_org))
+    return {"id_organisation": id_org, "quitte": True}
+
+
 @router.post("/organisations/{id_org}/invitations", status_code=201)
 def inviter(id_org: int, body: Envoi, u: dict = Depends(utilisateur_courant),
             conn: psycopg.Connection = Depends(get_conn)) -> dict:

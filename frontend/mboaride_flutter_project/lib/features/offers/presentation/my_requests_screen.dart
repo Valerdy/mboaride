@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app_services.dart';
 import '../../../core/api_client.dart';
 import '../../../core/mboa_theme.dart';
 import '../../children/data/children_repository.dart';
@@ -89,7 +90,7 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
     if (repository == null) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ChildrenScreen(repository: repository),
+        builder: (_) => ChildrenScreen(repository: repository, intercityRepository: AppServices.intercity),
       ),
     );
   }

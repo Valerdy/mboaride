@@ -10,6 +10,7 @@ import '../services/auth_service.dart';
 import '../core/road_routing.dart';
 import '../features/children/presentation/children_screen.dart';
 import '../features/driver/presentation/approval_screen.dart';
+import '../features/organisations/presentation/organisations_screen.dart';
 import '../features/driver/presentation/driver_shell.dart';
 import '../features/intercity/presentation/intercity_screen.dart';
 import '../features/offers/presentation/my_requests_screen.dart';
@@ -493,7 +494,9 @@ class _RequestRideScreenState extends State<RequestRideScreen> {
               _drawerItem(Icons.directions_car_rounded, 'Voyage Douala → Yaoundé',
                   IntercityScreen(repository: AppServices.intercity)),
               _drawerItem(Icons.school_rounded, 'Mes enfants (scolaire)',
-                  ChildrenScreen(repository: AppServices.children)),
+                  ChildrenScreen(repository: AppServices.children, intercityRepository: AppServices.intercity)),
+              _drawerItem(Icons.business_rounded, 'Mes organisations',
+                  OrganisationsScreen(repository: AppServices.organisations)),
               if (_isDriver)
                 _drawerItem(
                   Icons.drive_eta_rounded,
