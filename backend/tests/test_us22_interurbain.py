@@ -129,3 +129,59 @@ def test_reserver_plusieurs_places_dans_un_voyage(client, sql):
                           "nb_places": restantes})
     assert r.status_code == 409
     assert sql("SELECT count(*) n FROM demande")[0]["n"] == demandes
+
+
+# --- Point de départ choisi par le voyageur ------------------------------------------------------
+
+BONAMOUSSADI = {"libelle": "Bonamoussadi, carrefour Shell", "lat": 4.0850, "lon": 9.7350}
+BAFOUSSAM = {"libelle": "Bafoussam", "lat": 5.4737, "lon": 10.4179}
+
+
+def _verifier(client, v, lieu, uid=GRACE, nb=1):
+    return client.post(f"/api/voyages/{v['id_trajet']}/depart-libre/verification", headers=comme(uid),
+                       json={"depart_libre": lieu, "date_trajet": JOUR, "nb_places": nb})
+
+
+def test_un_point_de_depart_libre_est_verifie_avant_de_reserver(client):
+    v = _voyages(client)[0]
+    ok = _verifier(client, v, BONAMOUSSADI, nb=2)
+    assert ok.status_code == 200, ok.text
+    corps = ok.json()
+    assert corps["ok"] is True and corps["detour_km"] <= corps["detour_max_km"] == 8.0
+    assert corps["prise_en_charge"] < corps["arrivee_estimee"]
+    # Même prix de la place qu'à un point de montée du conducteur, deux places = deux fois ce prix.
+    assert corps["prix_par_place_fcfa"] == v["prix_fcfa"] and corps["prix_fcfa"] == 2 * v["prix_fcfa"]
+
+    loin = _verifier(client, v, BAFOUSSAM).json()
+    assert loin["ok"] is False and "de détour au conducteur" in loin["message"]
+    assert _verifier(client, v, {"libelle": "Paris", "lat": 48.85, "lon": 2.35}).json()["ok"] is False
+
+
+def test_reserver_a_son_propre_point_de_depart(client, sql):
+    v = _voyages(client)[0]
+    avant = v["places_restantes"]
+    r = client.post(f"/api/voyages/{v['id_trajet']}/reservations", headers=comme(GRACE),
+                    json={"depart_libre": BONAMOUSSADI, "date_trajet": JOUR, "prix_annonce_fcfa": v["prix_fcfa"]})
+    assert r.status_code == 201, r.text
+    reservation = r.json()
+    assert reservation["point_depart"] == BONAMOUSSADI["libelle"] and reservation["depart_libre"] is True
+    assert reservation["prix_fcfa"] == v["prix_fcfa"]                  # même prix que depuis Akwa ou Ndokoti
+    demande = sql("SELECT depart_libelle, depart_lat, depart_lon FROM demande WHERE id_demande = %s",
+                  (reservation["id_demande"],))[0]
+    assert demande["depart_libelle"] == BONAMOUSSADI["libelle"] and float(demande["depart_lat"]) == 4.085
+    assert _voyages(client)[0]["places_restantes"] == avant - 1
+
+
+def test_un_point_trop_loin_ou_un_choix_ambigu_est_refuse(client, sql):
+    v = _voyages(client)[0]
+    demandes = sql("SELECT count(*) n FROM demande")[0]["n"]
+    r = client.post(f"/api/voyages/{v['id_trajet']}/reservations", headers=comme(GRACE),
+                    json={"depart_libre": BAFOUSSAM, "date_trajet": JOUR})
+    assert r.status_code == 422 and "de détour au conducteur" in r.json()["detail"]
+    assert sql("SELECT count(*) n FROM demande")[0]["n"] == demandes
+
+    # Il faut un point de la liste ou un point libre, pas les deux ni aucun.
+    point = v["points_depart"][0]["id_point"]
+    for corps in ({"date_trajet": JOUR}, {"date_trajet": JOUR, "id_point_depart": point, "depart_libre": BONAMOUSSADI}):
+        r = client.post(f"/api/voyages/{v['id_trajet']}/reservations", headers=comme(GRACE), json=corps)
+        assert r.status_code == 422

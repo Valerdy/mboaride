@@ -12,6 +12,10 @@ Critères d'acceptation :
      renvoyé (409), comme à la confirmation d'un trajet urbain (US09).
   5. Un parent peut réserver pour l'un de ses élèves ; sans autorisation parentale
      active, la base refuse la réservation (409).
+  6. Le voyageur n'est pas limité aux points de montée du conducteur : il peut indiquer son
+     propre point de départ (`depart_libre`). Le moteur mesure le détour qu'il impose ; au-delà
+     de ce que le conducteur accepte, la réservation est refusée avec la raison. Le prix d'une
+     place reste le même quel que soit le point.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from datetime import date as Date, time as Time, timedelta
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .. import moteur
 from ..db import get_conn
@@ -33,14 +37,31 @@ router = APIRouter(prefix="/api", tags=["US22 · Voyages interurbains"])
 # la distance, on accepte donc une arrivée entre 30 minutes et 12 heures après le départ.
 FENETRE_MIN_H, FENETRE_MAX_H = 0.5, 12.0
 
+# Étendue du Cameroun : un point libre d'un voyage interurbain n'est pas limité à Douala.
+ZONE_CAMEROUN = {"lat": (1.6, 13.2), "lon": (8.4, 16.3)}
+
+
+class LieuLibre(BaseModel):
+    """Point de départ choisi par le voyageur, hors de la liste du conducteur."""
+    libelle: str = Field(min_length=1, max_length=120)
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
 
 class Reservation(BaseModel):
-    id_point_depart: int
+    id_point_depart: int | None = Field(default=None, description="Point de montée proposé par le conducteur")
+    depart_libre: LieuLibre | None = Field(default=None, description="Ou votre propre point de départ")
     date_trajet: Date
     id_eleve: int | None = None
     nb_places: int = Field(default=1, ge=1, le=8, description="Places réservées ensemble")
     prix_annonce_fcfa: int | None = Field(
         default=None, description="Prix total affiché au voyageur (places comprises) ; un écart renvoie un 409")
+
+    @model_validator(mode="after")
+    def _un_seul_depart(self):
+        if (self.id_point_depart is None) == (self.depart_libre is None):
+            raise ValueError("Choisissez un point de montée de la liste, ou indiquez votre propre point de départ")
+        return self
 
 
 def _voyage(conn: psycopg.Connection, id_trajet: int) -> dict:
@@ -63,8 +84,8 @@ def _points(conn: psycopg.Connection, id_trajet: int) -> list[dict]:
 
 
 def _demande_virtuelle(voyage: dict, point: dict | None, jour: Date, id_demandeur: int,
-                       nb_places: int = 1) -> dict:
-    """Demande telle qu'elle sera enregistrée : du point de montée à l'arrivée du voyage."""
+                       nb_places: int = 1, libre: LieuLibre | None = None) -> dict:
+    """Demande telle qu'elle sera enregistrée : du point de montée (ou du point libre) à l'arrivée."""
     depart = point["heure_passage"] if point else voyage["heure_depart"]
     base = depart.hour * 60 + depart.minute
     tot = min(23 * 60 + 58, int(base + FENETRE_MIN_H * 60))
@@ -74,9 +95,9 @@ def _demande_virtuelle(voyage: dict, point: dict | None, jour: Date, id_demandeu
     return {
         "id_demande": None, "id_demandeur": id_demandeur, "id_eleve": None,
         "id_organisation": None, "type_trajet": "interurbain", "nb_places": nb_places,
-        "depart_libelle": point["libelle"] if point else voyage["depart_libelle"],
-        "depart_lat": point["lat"] if point else voyage["depart_lat"],
-        "depart_lon": point["lon"] if point else voyage["depart_lon"],
+        "depart_libelle": libre.libelle if libre else point["libelle"] if point else voyage["depart_libelle"],
+        "depart_lat": libre.lat if libre else point["lat"] if point else voyage["depart_lat"],
+        "depart_lon": libre.lon if libre else point["lon"] if point else voyage["depart_lon"],
         "arrivee_libelle": voyage["arrivee_libelle"],
         "arrivee_lat": voyage["arrivee_lat"], "arrivee_lon": voyage["arrivee_lon"],
         "arrivee_au_plus_tot": Time(tot // 60, tot % 60),
@@ -102,6 +123,49 @@ def _circule(voyage: dict, jour: Date) -> bool:
     if voyage["date_unique"] is not None:
         return voyage["date_unique"] == jour
     return voyage["jours_semaine"][jour.weekday()] == "1"
+
+
+def _verifier_depart_libre(voyage: dict, libre: LieuLibre, jour: Date, id_demandeur: int, nb_places: int) -> dict:
+    """Le point libre convient-il ? Détour imposé au conducteur, heure de prise en charge, ou la raison du refus."""
+    if not (ZONE_CAMEROUN["lat"][0] <= libre.lat <= ZONE_CAMEROUN["lat"][1]
+            and ZONE_CAMEROUN["lon"][0] <= libre.lon <= ZONE_CAMEROUN["lon"][1]):
+        return {"ok": False, "message": "Ce point est hors du Cameroun."}
+    virtuelle = _demande_virtuelle(voyage, None, jour, id_demandeur, nb_places, libre)
+    trajet = moteur.driver_from_row(voyage)
+    demande = moteur.request_from_row(virtuelle)
+    d = moteur.detour(trajet, demande)
+    max_km = round(trajet.detour_max_m / 1000, 1)
+    detour_km = round(d.detour_m / 1000, 1)
+    base = {"detour_km": detour_km, "detour_max_km": max_km, "point": libre.libelle}
+    if d.detour_m > trajet.detour_max_m:
+        return {**base, "ok": False,
+                "message": f"Ce point impose {moteur.fr(detour_km)} km de détour au conducteur, qui en accepte "
+                           f"{moteur.fr(max_km)} au plus. Choisissez un point plus proche de son itinéraire."}
+    h = moteur.horaires(trajet, demande)
+    if h is None:
+        return {**base, "ok": False, "message": "Le conducteur ne peut pas vous prendre à ce point à l'heure de ce voyage."}
+    return {**base, "ok": True, "prise_en_charge": h[0], "arrivee_estimee": h[1],
+            "message": f"Le conducteur vous prend vers {h[0]} (détour de {moteur.fr(detour_km)} km)."}
+
+
+class VerificationDepart(BaseModel):
+    depart_libre: LieuLibre
+    date_trajet: Date
+    nb_places: int = Field(default=1, ge=1, le=8)
+
+
+@router.post("/voyages/{id_trajet}/depart-libre/verification")
+def verifier_depart_libre(id_trajet: int, body: VerificationDepart, u: dict = Depends(utilisateur_courant),
+                          conn: psycopg.Connection = Depends(get_conn)) -> dict:
+    """Vérifie un point de départ choisi par le voyageur avant de réserver (détour, heure, prix d'une place)."""
+    voyage = _voyage(conn, id_trajet)
+    if not _circule(voyage, body.date_trajet):
+        raise HTTPException(422, "Ce voyage ne circule pas à cette date")
+    resultat = _verifier_depart_libre(voyage, body.depart_libre, body.date_trajet, u["id_utilisateur"], body.nb_places)
+    if resultat["ok"]:
+        prix = _prix_place(conn, voyage, None, body.date_trajet, u["id_utilisateur"])
+        resultat.update(prix_par_place_fcfa=prix, prix_fcfa=prix * body.nb_places, nb_places=body.nb_places)
+    return resultat
 
 
 @router.get("/voyages")
@@ -152,14 +216,18 @@ def reserver_place(id_trajet: int, body: Reservation, u: dict = Depends(utilisat
         raise HTTPException(422, "Cette date est passée")
     points = _points(conn, id_trajet)
     point = next((p for p in points if p["id_point"] == body.id_point_depart), None)
-    if point is None and points:
+    if body.depart_libre is not None:
+        verification = _verifier_depart_libre(voyage, body.depart_libre, jour, u["id_utilisateur"], body.nb_places)
+        if not verification["ok"]:
+            raise HTTPException(422, verification["message"])
+    elif point is None and points:
         raise HTTPException(422, "Point de montée inconnu pour ce voyage")
     if body.id_eleve is not None and not conn.execute(
             "SELECT 1 FROM compte_eleve WHERE id_eleve = %s AND id_parent = %s",
             (body.id_eleve, u["id_utilisateur"])).fetchone():
         raise HTTPException(404, "Élève introuvable dans vos comptes")
 
-    virtuelle = _demande_virtuelle(voyage, point, jour, u["id_utilisateur"], body.nb_places)
+    virtuelle = _demande_virtuelle(voyage, point, jour, u["id_utilisateur"], body.nb_places, body.depart_libre)
     prix = _prix_place(conn, voyage, point, jour, u["id_utilisateur"])
     if body.prix_annonce_fcfa is not None and body.prix_annonce_fcfa != prix * body.nb_places:
         raise HTTPException(409, {"message": "Le prix a changé depuis l'affichage, merci de "
@@ -190,6 +258,6 @@ def reserver_place(id_trajet: int, body: Reservation, u: dict = Depends(utilisat
         raise HTTPException(422, "Le moteur n'a pas pu placer cette montée dans l'itinéraire")
     reservation = reserver(conn, d, e, jour)
     return {**reservation, "id_demande": d["id_demande"], "id_trajet": id_trajet,
-            "point_depart": virtuelle["depart_libelle"],
+            "point_depart": virtuelle["depart_libelle"], "depart_libre": body.depart_libre is not None,
             "heure_depart": e["prise_en_charge"], "date_trajet": jour.isoformat(),
             "id_eleve": body.id_eleve}

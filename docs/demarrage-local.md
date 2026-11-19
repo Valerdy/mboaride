@@ -99,7 +99,9 @@ Console web : http://localhost:8000 (documentation de l'API : http://localhost:8
    chauffeur sont collègues, donc dans le même cercle de confiance.
 6. « Où allez-vous ? » : départ Kotto, arrivée Bonanjo, fenêtre d'arrivée 07:20 à 07:55,
    un jour où le chauffeur roule : « Aujourd'hui », « Demain » ou « Autre date » (calendrier,
-   jusqu'à deux mois), prix maximal 800 FCFA.
+   jusqu'à deux mois), prix maximal 800 FCFA **par place**. Le sélecteur « Places à
+   réserver » permet de réserver pour soi et ses proches (de 1 à 6 places) : toutes les
+   places d'un trajet coûtent le même prix, et la réservation en coûte autant de fois.
 7. L'offre du chauffeur apparaît, avec le prix détaillé, le véhicule et le point de
    ramassage : la choisir puis « Confirmer ». La place est retenue et l'écran de paiement
    s'ouvre.
@@ -119,6 +121,13 @@ Console web : http://localhost:8000 (documentation de l'API : http://localhost:8
    appeler, note, lieu et heure de prise en charge ; un trajet non payé n'y apparaît pas).
    « Signaler un retard » et « Annuler le trajet » préviennent le client : la cloche de son
    application affiche la notification (elle interroge l'API toutes les 20 s).
+
+**Voyage interurbain**
+
+Menu ☰ > « Voyage Douala → Yaoundé » : choisir la date, le voyage, puis le point de montée.
+En plus des points du conducteur, « Autre point de départ… » cherche n'importe quel lieu du
+Cameroun ; l'application demande au serveur si le détour est acceptable et à quelle heure le
+conducteur passe, avant de réserver. Le prix d'une place est le même à tous les points.
 
 **La course, sans se déplacer**
 

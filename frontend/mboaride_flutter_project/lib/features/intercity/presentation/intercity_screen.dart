@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../core/api_client.dart';
 import '../../../core/mboa_theme.dart';
+import '../../ride_request/data/nominatim_place_search.dart';
+import '../../ride_request/data/place_search_service.dart';
+import '../../ride_request/domain/ride_request.dart' show Place;
+import '../../ride_request/presentation/place_search_sheet.dart';
 import '../data/intercity_repository.dart';
 import '../domain/intercity_trip.dart';
 
@@ -13,9 +17,13 @@ class IntercityScreen extends StatefulWidget {
     required this.repository,
     this.childId,
     this.childName,
+    this.placeSearch,
   });
 
   final IntercityRepository repository;
+
+  /// Recherche du point de départ libre ; par défaut, OpenStreetMap sur tout le Cameroun.
+  final PlaceSearchService? placeSearch;
 
   /// Réservation faite par un parent pour un élève autorisé (US17).
   final int? childId;
@@ -79,6 +87,7 @@ class _IntercityScreenState extends State<IntercityScreen> {
         date: _date,
         childId: widget.childId,
         childName: widget.childName,
+        placeSearch: widget.placeSearch ?? NominatimPlaceSearch(nationwide: true),
       ),
     );
     if (booking != null && mounted) {
@@ -340,10 +349,12 @@ class _SeatSheet extends StatefulWidget {
     required this.repository,
     required this.trip,
     required this.date,
+    required this.placeSearch,
     this.childId,
     this.childName,
   });
 
+  final PlaceSearchService placeSearch;
   final IntercityRepository repository;
   final IntercityTrip trip;
   final DateTime date;
@@ -362,6 +373,56 @@ class _SeatSheetState extends State<_SeatSheet> {
   String? _error;
   int _seats = 1;
 
+  /// Point de départ choisi par le voyageur lui-même, et ce que le conducteur en dit.
+  bool _useCustom = false;
+  Place? _custom;
+  PickupCheck? _check;
+  bool _checking = false;
+
+  bool get _canBook => !_saving && !_checking && (_useCustom ? (_custom != null && _check?.ok == true) : widget.trip.points.isNotEmpty);
+
+  Future<void> _chooseCustom() async {
+    final place = await showModalBottomSheet<Place>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => PlaceSearchSheet(service: widget.placeSearch, title: 'Mon point de départ'),
+    );
+    if (place == null || !mounted) return;
+    setState(() {
+      _useCustom = true;
+      _custom = place;
+      _check = null;
+      _error = null;
+    });
+    await _verify();
+  }
+
+  Future<void> _verify() async {
+    final place = _custom;
+    if (place == null) return;
+    setState(() => _checking = true);
+    try {
+      final check = await widget.repository.checkCustomPickup(
+        tripId: widget.trip.id,
+        place: place,
+        date: widget.date,
+        seats: _seats,
+      );
+      if (!mounted) return;
+      setState(() {
+        _check = check;
+        _checking = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _check = PickupCheck(ok: false, message: error.message);
+        _checking = false;
+      });
+    }
+  }
+
   Future<void> _confirm() async {
     setState(() {
       _saving = true;
@@ -370,7 +431,8 @@ class _SeatSheetState extends State<_SeatSheet> {
     try {
       final booking = await widget.repository.bookSeat(
         tripId: widget.trip.id,
-        pickupPointId: _pointId,
+        pickupPointId: _useCustom ? null : _pointId,
+        customPickup: _useCustom ? _custom : null,
         date: widget.date,
         childId: widget.childId,
         seats: _seats,
@@ -438,17 +500,21 @@ class _SeatSheetState extends State<_SeatSheet> {
         ...widget.trip.points.map(
           (point) => InkWell(
             borderRadius: BorderRadius.circular(10),
-            onTap: () => setState(() => _pointId = point.id),
+            onTap: () => setState(() {
+              _pointId = point.id;
+              _useCustom = false;
+              _error = null;
+            }),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
                 children: [
                   Icon(
-                    _pointId == point.id
+                    !_useCustom && _pointId == point.id
                         ? Icons.radio_button_checked
                         : Icons.radio_button_unchecked,
                     size: 20,
-                    color: _pointId == point.id
+                    color: !_useCustom && _pointId == point.id
                         ? MboaColors.green
                         : MboaColors.border,
                   ),
@@ -475,6 +541,50 @@ class _SeatSheetState extends State<_SeatSheet> {
             ),
           ),
         ),
+        InkWell(
+          key: const ValueKey('autre-point-de-depart'),
+          borderRadius: BorderRadius.circular(10),
+          onTap: _chooseCustom,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  _useCustom ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                  size: 20,
+                  color: _useCustom ? MboaColors.green : MboaColors.border,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _custom?.name ?? 'Autre point de départ…',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: _useCustom ? FontWeight.w600 : FontWeight.w400,
+                      color: MboaColors.night,
+                    ),
+                  ),
+                ),
+                Icon(_custom == null ? Icons.search_rounded : Icons.edit_outlined, size: 18, color: MboaColors.mutedText),
+              ],
+            ),
+          ),
+        ),
+        if (_useCustom && (_checking || _check != null))
+          Padding(
+            padding: const EdgeInsets.only(left: 30, bottom: 4),
+            child: _checking
+                ? const Text('Vérification auprès du conducteur…', style: TextStyle(fontSize: 12.5, color: MboaColors.mutedText))
+                : Text(
+                    _check!.message,
+                    key: const ValueKey('verification-depart'),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: _check!.ok ? MboaColors.green : MboaColors.red,
+                    ),
+                  ),
+          ),
         if (widget.childId == null && widget.trip.seatsLeft > 1) ...[
           const SizedBox(height: 10),
           Row(
@@ -520,7 +630,7 @@ class _SeatSheetState extends State<_SeatSheet> {
           ),
         const SizedBox(height: 18),
         FilledButton(
-          onPressed: _saving || widget.trip.points.isEmpty ? null : _confirm,
+          onPressed: _canBook ? _confirm : null,
           child: _saving
               ? const SizedBox(
                   height: 20,

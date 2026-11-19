@@ -81,6 +81,24 @@ class IntercityTrip {
   String get priceLabel => formatFcfa(priceFcfa);
 }
 
+/// Résultat de la vérification d'un point de départ choisi par le voyageur : le conducteur
+/// accepte-t-il le détour, et à quelle heure vous prend-il ?
+class PickupCheck {
+  const PickupCheck({required this.ok, required this.message, this.pickupTime, this.detourKm});
+
+  final bool ok;
+  final String message;
+  final String? pickupTime;
+  final double? detourKm;
+
+  factory PickupCheck.fromJson(Map<String, dynamic> json) => PickupCheck(
+    ok: json['ok'] == true,
+    message: json['message'] as String? ?? '',
+    pickupTime: json['prise_en_charge'] as String?,
+    detourKm: (json['detour_km'] as num?)?.toDouble(),
+  );
+}
+
 /// Confirmation d'une place interurbaine.
 class SeatBooking {
   const SeatBooking({

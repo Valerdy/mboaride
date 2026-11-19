@@ -1,4 +1,5 @@
 import '../../../core/api_client.dart';
+import '../../ride_request/domain/ride_request.dart' show Place;
 import '../domain/intercity_trip.dart';
 
 /// Voyages interurbains et réservation d'une place (US22).
@@ -7,9 +8,20 @@ abstract class IntercityRepository {
   /// le voyageur réserve plusieurs jours à l'avance.
   Future<List<IntercityTrip>> trips(DateTime date);
 
+  /// Vérifie un point de départ choisi par le voyageur (hors de la liste du conducteur) :
+  /// détour accepté ou non, heure de prise en charge.
+  Future<PickupCheck> checkCustomPickup({
+    required int tripId,
+    required Place place,
+    required DateTime date,
+    int seats = 1,
+  });
+
+  /// Réserve à un point de montée de la liste ([pickupPointId]) ou à son propre point ([customPickup]).
   Future<SeatBooking> bookSeat({
     required int tripId,
-    required int pickupPointId,
+    int? pickupPointId,
+    Place? customPickup,
     required DateTime date,
     int? childId,
 
@@ -36,16 +48,34 @@ class ApiIntercityRepository implements IntercityRepository {
   }
 
   @override
+  Future<PickupCheck> checkCustomPickup({
+    required int tripId,
+    required Place place,
+    required DateTime date,
+    int seats = 1,
+  }) async {
+    final body = await _client.post('/api/voyages/$tripId/depart-libre/verification', {
+      'depart_libre': _place(place),
+      'date_trajet': isoDate(date),
+      'nb_places': seats,
+    });
+    return PickupCheck.fromJson(body as Map<String, dynamic>);
+  }
+
+  static Map<String, dynamic> _place(Place p) => {'libelle': p.name, 'lat': p.lat, 'lon': p.lng};
+
+  @override
   Future<SeatBooking> bookSeat({
     required int tripId,
-    required int pickupPointId,
+    int? pickupPointId,
+    Place? customPickup,
     required DateTime date,
     int? childId,
     int seats = 1,
     int? announcedPriceFcfa,
   }) async {
     final body = await _client.post('/api/voyages/$tripId/reservations', {
-      'id_point_depart': pickupPointId,
+      if (customPickup != null) 'depart_libre': _place(customPickup) else 'id_point_depart': pickupPointId,
       'date_trajet': isoDate(date),
       'nb_places': seats,
       if (childId != null) 'id_eleve': childId,
@@ -126,9 +156,34 @@ class FakeIntercityRepository implements IntercityRepository {
   }
 
   @override
+  Future<PickupCheck> checkCustomPickup({
+    required int tripId,
+    required Place place,
+    required DateTime date,
+    int seats = 1,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    // Démonstration : tout point au nord de Douala (Bafoussam, Yaoundé...) est trop loin du conducteur.
+    if (place.lat > 4.6) {
+      return const PickupCheck(
+        ok: false,
+        message: 'Ce point impose 120 km de détour au conducteur, qui en accepte 8 au plus. '
+            'Choisissez un point plus proche de son itinéraire.',
+      );
+    }
+    return const PickupCheck(
+      ok: true,
+      message: 'Le conducteur vous prend vers 06:25 (détour de 1,4 km).',
+      pickupTime: '06:25',
+      detourKm: 1.4,
+    );
+  }
+
+  @override
   Future<SeatBooking> bookSeat({
     required int tripId,
-    required int pickupPointId,
+    int? pickupPointId,
+    Place? customPickup,
     required DateTime date,
     int? childId,
     int seats = 1,
@@ -146,8 +201,8 @@ class FakeIntercityRepository implements IntercityRepository {
       bookingId: _nextBooking++,
       priceFcfa: trip.priceFcfa * seats,
       seats: seats,
-      pickupLabel: point.label,
-      pickupTime: point.time,
+      pickupLabel: customPickup?.name ?? point.label,
+      pickupTime: customPickup != null ? '06:25' : point.time,
       payment: 'À régler par Mobile Money avant le départ.',
     );
   }

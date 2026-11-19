@@ -8,6 +8,7 @@ import 'package:mboaride/core/app_config.dart';
 import 'package:mboaride/core/auth_session.dart';
 import 'package:mboaride/features/driver/data/driver_repository.dart';
 import 'package:mboaride/features/driver/domain/driver.dart';
+import 'package:mboaride/features/intercity/data/intercity_repository.dart';
 import 'package:mboaride/features/ride_request/data/api_ride_request_repository.dart';
 import 'package:mboaride/features/ride_request/domain/ride_request.dart' as rr;
 import 'package:mboaride/services/auth_service.dart';
@@ -99,6 +100,45 @@ void main() {
       'prix_max_fcfa': 800,
       'nb_places': 2,
       'clim_obligatoire': true,
+    });
+  });
+
+  group('voyage interurbain (API Python)', () {
+    test('un point de départ libre part avec ses coordonnées, à la place du point de la liste', () async {
+      final calls = <http.Request>[];
+      final client = MockClient((request) async {
+        calls.add(request);
+        return request.url.path.endsWith('/verification')
+            ? _json({'ok': true, 'message': 'Le conducteur vous prend vers 14:25.', 'prise_en_charge': '14:25', 'detour_km': 1.4})
+            : _json({'id_reservation': 9, 'prix_fcfa': 7000, 'nb_places': 2, 'point_depart': 'Bonamoussadi', 'heure_depart': '14:25'}, 201);
+      });
+      final repository = ApiIntercityRepository(client: ApiClient(client: client));
+      const place = rr.Place(name: 'Bonamoussadi', lat: 4.085, lng: 9.735);
+
+      final check = await repository.checkCustomPickup(tripId: 2, place: place, date: DateTime(2026, 11, 20), seats: 2);
+      expect(check.ok, isTrue);
+      expect(check.pickupTime, '14:25');
+      expect(calls.last.url.path, '/api/voyages/2/depart-libre/verification');
+      expect(jsonDecode(calls.last.body), {
+        'depart_libre': {'libelle': 'Bonamoussadi', 'lat': 4.085, 'lon': 9.735},
+        'date_trajet': '2026-11-20',
+        'nb_places': 2,
+      });
+
+      final booking = await repository.bookSeat(
+        tripId: 2, customPickup: place, date: DateTime(2026, 11, 20), seats: 2, announcedPriceFcfa: 7000,
+      );
+      expect(booking.seats, 2);
+      final corps = jsonDecode(calls.last.body) as Map<String, dynamic>;
+      expect(corps.containsKey('id_point_depart'), isFalse);
+      expect(corps['depart_libre'], {'libelle': 'Bonamoussadi', 'lat': 4.085, 'lon': 9.735});
+      expect(corps['nb_places'], 2);
+      expect(corps['prix_annonce_fcfa'], 7000);
+
+      await repository.bookSeat(tripId: 2, pickupPointId: 5, date: DateTime(2026, 11, 20));
+      final liste = jsonDecode(calls.last.body) as Map<String, dynamic>;
+      expect(liste['id_point_depart'], 5);
+      expect(liste.containsKey('depart_libre'), isFalse);
     });
   });
 
